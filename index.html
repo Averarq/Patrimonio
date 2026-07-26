@@ -136,6 +136,11 @@ select.mini:hover{color:var(--texto);border-color:var(--linea)}
 .regla input.texto{flex:1;width:auto;font-size:11.5px;padding:6px 8px;text-transform:uppercase}
 .delta{font-family:var(--mono);font-size:12px}
 button.ghost.chico{font-size:9.5px;padding:5px 9px;letter-spacing:.08em}
+input.dato.fecha{width:auto;min-width:180px;text-align:left;font-size:12px;color-scheme:dark}
+.manual{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;align-items:center;margin-top:12px}
+.manual input,.manual select,.manual button{width:100%}
+.manual input.dato{text-align:right}
+@media (max-width:640px){.manual{grid-template-columns:1fr 1fr}.manual #mDetalle{grid-column:1/-1}}
 
 #instalar{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));max-width:948px;margin:0 auto;background:var(--panel);border:1px solid var(--efectivo);border-radius:var(--r);padding:13px 15px;display:none;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:20}
 #instalar.ver{display:flex}
@@ -156,7 +161,7 @@ button.ghost.chico{font-size:9.5px;padding:5px 9px;letter-spacing:.08em}
 <header>
   <div class="marca">
     <h1>PATRIMONIO</h1>
-    <div class="sub">Panel financiero personal · v2.2</div>
+    <div class="sub">Panel financiero personal · v2.3</div>
   </div>
   <div class="fecha">
     <div class="eyebrow">Actualizado</div>
@@ -292,6 +297,7 @@ const CATS = [
   {id:"salud",      n:"Salud",           col:"#5FBF8E"},
   {id:"ocio",       n:"Ocio",            col:"#D9615A"},
   {id:"compras",    n:"Compras",         col:"#C3729B"},
+  {id:"efectivo",   n:"Giros en efectivo", col:"#9AA5B1"},
   {id:"otros",      n:"Sin clasificar",  col:"#5C6675"}
 ];
 
@@ -319,7 +325,8 @@ const REGLAS_BASE = [
   {t:"TEATRO", c:"ocio"}, {t:"MUSEO", c:"ocio"},
   {t:"MERPAGO", c:"compras"}, {t:"MERCADOPAGO", c:"compras"}, {t:"MERCADOLIBRE", c:"compras"},
   {t:"FALABELLA", c:"compras"}, {t:"PARIS", c:"compras"}, {t:"RIPLEY", c:"compras"},
-  {t:"AMAZON", c:"compras"}
+  {t:"AMAZON", c:"compras"},
+  {t:"GIRO EN", c:"efectivo"}
 ];
 
 /* El corte inicial: los movimientos de más abajo ya están reflejados
@@ -327,7 +334,7 @@ const REGLAS_BASE = [
 const CORTE_INICIAL = "2026-07-24T23:59";
 
 const INICIAL = {
-  v: "2.2",
+  v: "2.3",
   sello: "2026-07-24",
   usdclp: 936.39,
   reglas: REGLAS_BASE.slice(),
@@ -418,7 +425,8 @@ function normaliza(o){
   const corte = (o.sello || CORTE_INICIAL.slice(0,10)) + "T23:59";
   o.cuentas.forEach(c=>{ if(!c.desde) c.desde = corte; });
   o.tarjetas.forEach(t=>{ if(!t.desde) t.desde = corte; });
-  o.v = "2.2";
+  o.mov.forEach(m=>{ if(m.k !== "abono") m.k = "cargo"; });
+  o.v = "2.3";
   return o;
 }
 
@@ -457,6 +465,10 @@ function categoriza(desc){
 /* La categoría fijada a mano (m.c) manda sobre las reglas. */
 const catDe = m => (m.c && CATS.some(c=>c.id===m.c)) ? m.c : categoriza(m.d);
 const montoCLP = m => m.mon==="USD" ? (+m.m||0)*(E.usdclp||1) : (+m.m||0);
+/* Un movimiento es cargo (sale plata) o abono (entra). Los abonos se registran a mano:
+   el banco no manda aviso de sueldos ni transferencias recibidas. */
+const esAbono = m => m.k === "abono";
+const signo = m => esAbono(m) ? -1 : 1;
 
 /* ---------------- saldos estimados ----------------
    El saldo que escribes es el que leíste del banco, y queda fechado.
@@ -470,13 +482,13 @@ function ahoraLocal(){
 function movPost(id, desde){
   return E.mov.filter(m=>m.cta===id && (!desde || String(m.f) > desde));
 }
-/* Suma de esos movimientos, expresada en la moneda del instrumento */
+/* Neto de esos movimientos (cargos menos abonos), en la moneda del instrumento */
 function gastoPost(id, desde, mon){
   const t = E.usdclp || 1;
   return movPost(id, desde).reduce((s,m)=>{
-    const v = +m.m || 0;
-    if((m.mon||"CLP") === (mon||"CLP")) return s + v;
-    return s + (m.mon==="USD" ? v*t : v/t);
+    let v = +m.m || 0;
+    if((m.mon||"CLP") !== (mon||"CLP")) v = m.mon==="USD" ? v*t : v/t;
+    return s + v*signo(m);
   },0);
 }
 const saldoCta  = c  => (+c.saldo||0) - gastoPost(c.id, c.desde, "CLP");
@@ -539,8 +551,10 @@ function renderCuentas(){
     const gasto = gastoPost(ct.id, ct.desde, "CLP");
     const est = saldoCta(ct);
     h += '<div class="tarjeta"><div class="cab"><h3>'+ct.banco+'</h3><span class="eyebrow">'+(ct.num?"···"+ct.num:"débito")+'</span></div>'+
-      '<div class="fila"><span class="et"><b>'+ct.nombre+'</b><i>Saldo que leíste del banco · '+fechaCorte(ct.desde)+'</i></span>'+
-      '<input class="dato" data-r="cuentas" data-i="'+i+'" data-k="saldo" value="'+ct.saldo+'" inputmode="numeric"></div>';
+      '<div class="fila"><span class="et"><b>'+ct.nombre+'</b><i>Saldo que leíste del banco</i></span>'+
+      '<input class="dato" data-r="cuentas" data-i="'+i+'" data-k="saldo" value="'+ct.saldo+'" inputmode="numeric"></div>'+
+      '<div class="fila"><span class="et"><b>Vale desde</b><i>Se descuenta lo posterior a esta hora</i></span>'+
+      '<input class="dato fecha" type="datetime-local" data-corte="cuentas:'+i+'" value="'+(ct.desde||"")+'"></div>';
     if(post.length){
       h += '<div class="fila"><span class="et"><b>'+post.length+' '+(post.length===1?"compra":"compras")+' desde entonces</b>'+
         '<i>Descontadas del saldo de arriba</i></span>'+
@@ -581,8 +595,10 @@ function renderTarjetas(){
       '<span style="text-align:right"><div class="num neg" style="font-size:16px">'+fm(usado)+'</div>'+
       '<div class="eyebrow">deuda'+(tc.mon==="USD"?" · "+clp(usado*t):"")+'</div></span></div>'+
       '<div class="medidor '+clase+'"><div style="width:'+Math.min(100,Math.max(0,p))+'%"></div></div>'+
-      '<div class="fila" style="margin-top:8px"><span class="et"><b>Cupo disponible del banco</b><i>El que leíste · '+fechaCorte(tc.desde)+'</i></span>'+
-      '<input class="dato" data-r="tarjetas" data-i="'+i+'" data-k="disp" value="'+tc.disp+'" inputmode="decimal"></div>';
+      '<div class="fila" style="margin-top:8px"><span class="et"><b>Cupo disponible del banco</b><i>El que leíste</i></span>'+
+      '<input class="dato" data-r="tarjetas" data-i="'+i+'" data-k="disp" value="'+tc.disp+'" inputmode="decimal"></div>'+
+      '<div class="fila"><span class="et"><b>Vale desde</b><i>Se descuenta lo posterior a esta hora</i></span>'+
+      '<input class="dato fecha" type="datetime-local" data-corte="tarjetas:'+i+'" value="'+(tc.desde||"")+'"></div>';
     if(post.length){
       h += '<div class="fila"><span class="et"><b>'+post.length+' '+(post.length===1?"compra":"compras")+' desde entonces</b>'+
         '<i>Suben la deuda, bajan el cupo</i></span><span class="num neg">−'+fm(gasto)+'</span></div>'+
@@ -643,13 +659,15 @@ function mesesConDatos(){
 }
 /* Suma por categoría de un mes dado. Devuelve {total, por:{cat:monto}} */
 function gastoMes(ym){
-  const por = {}; let total = 0;
+  const por = {}; let total = 0, abonos = 0;
   E.mov.forEach(m=>{
     if(String(m.f).slice(0,7) !== ym) return;
-    const v = montoCLP(m), c = catDe(m);
+    const v = montoCLP(m);
+    if(esAbono(m)){ abonos += v; return; }   // un ingreso no es gasto
+    const c = catDe(m);
     por[c] = (por[c]||0) + v; total += v;
   });
-  return {total, por};
+  return {total, por, abonos};
 }
 function renderGastos(){
   const meses = mesesConDatos();
@@ -665,7 +683,9 @@ function renderGastos(){
     '<span class="num" style="font-size:19px">'+clp(a.total)+'</span></div>'+
     '<div class="fila"><span class="et"><b>Contra '+mesLargo(prev)+'</b><i>'+(b.total ? "Ese mes fueron "+clp(b.total) : "Sin registros ese mes")+'</i></span>'+
     '<span class="delta '+(b.total ? (dif>0?"neg":"pos") : "")+'">'+
-    (b.total ? (dif>0?"+":"−")+clp(Math.abs(dif))+" · "+(dif>0?"+":"−")+pct(Math.abs(difPct)) : "—")+'</span></div></div>';
+    (b.total ? (dif>0?"+":"−")+clp(Math.abs(dif))+" · "+(dif>0?"+":"−")+pct(Math.abs(difPct)) : "—")+'</span></div>'+
+    (a.abonos ? '<div class="fila"><span class="et"><b>Ingresos del mes</b><i>Registrados a mano</i></span>'+
+      '<span class="num pos" style="font-size:16px">+'+clp(a.abonos)+'</span></div>' : '')+'</div>';
 
   // Serie de los últimos 6 meses
   const serie = [];
@@ -721,12 +741,24 @@ function renderMov(){
   if(FILTRO.mes !== "todos") ms = ms.filter(m=>String(m.f).slice(0,7)===FILTRO.mes);
   if(FILTRO.cat !== "todas") ms = ms.filter(m=>catDe(m)===FILTRO.cat);
   if(FILTRO.cta !== "todas") ms = ms.filter(m=>m.cta===FILTRO.cta);
-  const suma = ms.reduce((s,m)=>s+montoCLP(m),0);
+  const suma = ms.reduce((s,m)=>s+montoCLP(m)*signo(m),0);
 
   const ctas = E.cuentas.map(c=>({id:c.id, n:c.banco+" · cuenta"}))
     .concat(E.tarjetas.map(c=>({id:c.id, n:c.banco+" · TC "+c.mon})));
 
-  let h = '<div class="filtros">'+
+  /* Lo que el banco no avisa: sueldos, transferencias recibidas, pagos automáticos. */
+  let h = '<div class="tarjeta"><div class="cab"><h3>Registrar a mano</h3><span class="eyebrow">Lo que el banco no avisa</span></div>'+
+    '<p class="nota" style="margin-top:0">Sueldos, transferencias recibidas, pagos automáticos, comisiones. Un abono suma al saldo; un cargo lo resta.</p>'+
+    '<div class="manual">'+
+      '<input class="texto" id="mFecha" type="datetime-local" value="'+ahoraLocal()+'">'+
+      '<input class="texto" id="mDetalle" placeholder="Detalle" spellcheck="false">'+
+      '<input class="dato" id="mMonto" placeholder="Monto" inputmode="numeric">'+
+      '<select class="dato" id="mCta">'+ctas.map(c=>'<option value="'+c.id+'">'+c.n+'</option>').join("")+'</select>'+
+      '<select class="dato" id="mTipo"><option value="cargo">Cargo (sale)</option><option value="abono">Abono (entra)</option></select>'+
+      '<button class="accion" id="btnManual">Agregar</button>'+
+    '</div><span class="num" id="manualEstado" style="font-size:12px;color:var(--tenue)"></span></div>';
+
+  h += '<div class="filtros">'+
     '<label>Período <select class="dato" data-f="mes"><option value="todos"'+(FILTRO.mes==="todos"?" selected":"")+'>Todos</option>'+
       meses.map(x=>'<option value="'+x+'"'+(x===FILTRO.mes?" selected":"")+'>'+mesLargo(x)+'</option>').join("")+'</select></label>'+
     '<label>Categoría <select class="dato" data-f="cat"><option value="todas"'+(FILTRO.cat==="todas"?" selected":"")+'>Todas</option>'+
@@ -743,13 +775,16 @@ function renderMov(){
   ms.forEach(m=>{
     const idx = E.mov.indexOf(m);
     const c = catDe(m);
+    const ab = esAbono(m);
+    const cifra = (ab?"+":"") + (m.mon==="USD"?usd(m.m):clp(m.m));
     h += '<tr><td class="num" style="color:var(--suave);white-space:nowrap">'+fechaCorta(m.f)+'</td>'+
       '<td>'+m.d+' <span class="origen">'+m.o+'</span></td>'+
-      '<td><select class="mini" data-cat="'+idx+'" style="color:'+catPorId(c).col+'">'+
+      '<td>'+(ab ? '<span class="chip"><i style="background:var(--inversion)"></i>Ingreso</span>' :
+        '<select class="mini" data-cat="'+idx+'" style="color:'+catPorId(c).col+'">'+
         CATS.map(x=>'<option value="'+x.id+'"'+(x.id===c?" selected":"")+'>'+x.n+'</option>').join("")+
-        '</select>'+(m.c?'':'<span class="eyebrow" style="display:block;font-size:8.5px">por regla</span>')+'</td>'+
+        '</select>'+(m.c?'':'<span class="eyebrow" style="display:block;font-size:8.5px">por regla</span>'))+'</td>'+
       '<td class="oc" style="color:var(--tenue)">'+nombreCta(m.cta)+'</td>'+
-      '<td class="m">'+(m.mon==="USD"?usd(m.m):clp(m.m))+'</td>'+
+      '<td class="m'+(ab?" pos":"")+'">'+cifra+'</td>'+
       '<td style="text-align:right"><button class="borrar" data-borrar="'+idx+'" title="Eliminar">×</button></td></tr>';
   });
   if(!ms.length) h += '<tr><td colspan="6" style="color:var(--tenue);padding:14px 0">Nada calza con estos filtros.</td></tr>';
@@ -763,6 +798,13 @@ document.addEventListener("change", ev=>{
   if(el.id === "usdclp"){ E.usdclp = numCL(el.value)||936; guardar(); render(); return; }
   if(el.id === "syncUrl"){ E.sync.url = el.value.trim(); guardar(); return; }
   if(el.id === "syncClave"){ E.sync.clave = el.value.trim(); guardar(); return; }
+
+  // v2.3 — fecha de corte editable
+  if(el.dataset.corte){
+    const [r,i] = el.dataset.corte.split(":");
+    if(E[r][+i]){ E[r][+i].desde = el.value || ahoraLocal(); guardar(); render(); }
+    return;
+  }
 
   // v2.1 — mes en vista, filtros, categoría manual y reglas
   if(el.id === "selMes"){ MES_VISTA = el.value; renderGastos(); return; }
@@ -833,6 +875,23 @@ document.addEventListener("click", ev=>{
     renderMov();
     return;
   }
+
+  // Movimiento registrado a mano
+  if(ev.target.id === "btnManual"){
+    const est = document.getElementById("manualEstado");
+    const f = document.getElementById("mFecha").value;
+    const d = document.getElementById("mDetalle").value.trim().toUpperCase().slice(0,40);
+    const monto = numCL(document.getElementById("mMonto").value);
+    const cta = document.getElementById("mCta").value;
+    const k = document.getElementById("mTipo").value;
+    if(!f || !d || !monto){ est.textContent = "Faltan la fecha, el detalle o el monto."; return; }
+    const tc = E.tarjetas.find(x=>x.id===cta);
+    E.mov.push({f, d, m:Math.abs(monto), mon: tc ? tc.mon : "CLP", cta, k, o:"mano"});
+    E.sello = new Date().toISOString().slice(0,10);
+    guardar(); render();
+    document.getElementById("manualEstado").textContent = (k==="abono"?"Abono":"Cargo")+" de "+clp(Math.abs(monto))+" registrado.";
+    return;
+  }
 });
 
 /* ---------------- pestañas ---------------- */
@@ -857,9 +916,26 @@ function leerTexto(txt){
       m: numCL(m[2]),
       mon: esUsd ? "USD" : "CLP",
       cta: esTc ? (esUsd ? "bch-usd" : "bch-tc") : "bch-cc",
+      k: "cargo",
       o: "correo"
     });
   }
+
+  /* Giros en cajero: el aviso no menciona comercio, por eso necesita su propio patrón.
+     "se ha realizado un giro en Cajero por $200.000 con cargo a Cuenta ****7705 el 13/07/2026 12:50" */
+  const reGiro = /giro en ([A-Za-zÁÉÍÓÚáéíóúñÑ]+)\s+por\s+(US ?\$|\$)\s?([\d.,]+)\s+con\s+cargo a Cuenta\s+\*{0,4}(\d{4})\s+el\s+(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/gi;
+  while((m = reGiro.exec(txt)) !== null){
+    out.push({
+      f: m[7]+"-"+m[6]+"-"+m[5]+"T"+m[8],
+      d: ("GIRO EN " + m[1]).toUpperCase().slice(0,40),
+      m: numCL(m[3]),
+      mon: /US/i.test(m[2]) ? "USD" : "CLP",
+      cta: "bch-cc",
+      k: "cargo",
+      o: "correo"
+    });
+  }
+
   const fin = /Invertiste\s+(?:US ?\$ ?)?([\d.,]+)\s+.{0,30}?en\s+([\d.,]+)\s+acciones de\s+(.+?)(?:\r|\n|$)/gi;
   const inv = [];
   while((m = fin.exec(txt)) !== null){
@@ -946,6 +1022,7 @@ async function sincronizar(silencioso){
       f: m.f, d: String(m.d||"").toUpperCase().slice(0,40), m: numCL(m.m),
       mon: m.mon==="USD" ? "USD" : "CLP",
       cta: m.tipo==="credito" ? (m.mon==="USD"?"bch-usd":"bch-tc") : "bch-cc",
+      k: "cargo",
       o: "auto"
     })).filter(m=>m.f && m.m>0);
     E.sync.ultima = new Date().toISOString();
