@@ -161,7 +161,7 @@ input.dato.fecha{width:auto;min-width:180px;text-align:left;font-size:12px;color
 <header>
   <div class="marca">
     <h1>PATRIMONIO</h1>
-    <div class="sub">Panel financiero personal · v2.3</div>
+    <div class="sub">Panel financiero personal · v2.6</div>
   </div>
   <div class="fecha">
     <div class="eyebrow">Actualizado</div>
@@ -298,6 +298,7 @@ const CATS = [
   {id:"ocio",       n:"Ocio",            col:"#D9615A"},
   {id:"compras",    n:"Compras",         col:"#C3729B"},
   {id:"efectivo",   n:"Giros en efectivo", col:"#9AA5B1"},
+  {id:"transferencias", n:"Transferencias", col:"#7E8AA2"},
   {id:"otros",      n:"Sin clasificar",  col:"#5C6675"}
 ];
 
@@ -326,22 +327,55 @@ const REGLAS_BASE = [
   {t:"MERPAGO", c:"compras"}, {t:"MERCADOPAGO", c:"compras"}, {t:"MERCADOLIBRE", c:"compras"},
   {t:"FALABELLA", c:"compras"}, {t:"PARIS", c:"compras"}, {t:"RIPLEY", c:"compras"},
   {t:"AMAZON", c:"compras"},
-  {t:"GIRO EN", c:"efectivo"}
+  {t:"GIRO EN", c:"efectivo"},
+  {t:"TRANSF A", c:"transferencias"},
+  {t:"TRASPASO", c:"transferencias"}
 ];
+
+/* A qué cuenta tuya entró una transferencia.
+   Los avisos los manda el banco de quien envía, y traen los datos de destino:
+   el número de cuenta y el nombre del banco. Se prueba el número primero. */
+/* Devuelve la cuenta propia cuyo número termina igual, o null si es de un tercero. */
+function ctaPorNum(numTxt){
+  const dig = String(numTxt||"").replace(/\D/g,"");
+  if(dig.length < 4) return null;
+  const fin = dig.slice(-4);
+  const c = E.cuentas.find(x=>x.num && x.num === fin);
+  return c ? c.id : null;
+}
+function ctaDestino(bancoTxt, numTxt){
+  const propia = ctaPorNum(numTxt);
+  if(propia) return propia;
+  const b = String(bancoTxt||"");
+  if(/santander/i.test(b)) return "san-cc";
+  if(/chile|edwards|citi/i.test(b)) return "bch-cc";
+  return "bch-cc";
+}
+
+/* Fechas en palabras: "viernes 24 de julio de 2026 16:18" */
+const MESES_N = {enero:"01",febrero:"02",marzo:"03",abril:"04",mayo:"05",junio:"06",
+  julio:"07",agosto:"08",septiembre:"09",setiembre:"09",octubre:"10",noviembre:"11",diciembre:"12"};
+function fechaLarga(t){
+  const f = /Fecha y Hora:?\s*(?:[a-záéíóúA-ZÁÉÍÓÚ]+\s+)?(\d{1,2})\s+de\s+([a-záéíóúA-ZÁÉÍÓÚ]+)\s+de\s+(\d{4})[\s,]*(\d{1,2}):(\d{2})/i.exec(t);
+  if(!f) return null;
+  const mes = MESES_N[f[2].toLowerCase()];
+  if(!mes) return null;
+  return f[3]+"-"+mes+"-"+String(f[1]).padStart(2,"0")+"T"+String(f[4]).padStart(2,"0")+":"+f[5];
+}
 
 /* El corte inicial: los movimientos de más abajo ya están reflejados
    en los saldos declarados el 24-07, así que no deben descontarse otra vez. */
 const CORTE_INICIAL = "2026-07-24T23:59";
 
 const INICIAL = {
-  v: "2.3",
+  v: "2.6",
   sello: "2026-07-24",
   usdclp: 936.39,
   reglas: REGLAS_BASE.slice(),
   sync: {url:"", clave:"", ultima:""},
   cuentas: [
     {id:"bch-cc", banco:"Banco de Chile", nombre:"Cuenta corriente", num:"7705", saldo:789168, desde:CORTE_INICIAL},
-    {id:"san-cc", banco:"Santander",      nombre:"Cuenta corriente", num:"",     saldo:0,      desde:CORTE_INICIAL}
+    {id:"san-cc", banco:"Santander",      nombre:"Cuenta corriente", num:"7950", saldo:0,      desde:CORTE_INICIAL}
   ],
   lineas: [
     {id:"bch-lc", banco:"Banco de Chile", nombre:"Línea de crédito", cupo:500000, usado:0}
@@ -426,7 +460,11 @@ function normaliza(o){
   o.cuentas.forEach(c=>{ if(!c.desde) c.desde = corte; });
   o.tarjetas.forEach(t=>{ if(!t.desde) t.desde = corte; });
   o.mov.forEach(m=>{ if(m.k !== "abono") m.k = "cargo"; });
-  o.v = "2.3";
+  // Los últimos 4 dígitos identifican la cuenta en los avisos de transferencia.
+  o.cuentas.forEach(c=>{
+    if(!c.num){ const i = INICIAL.cuentas.find(x=>x.id===c.id); if(i) c.num = i.num; }
+  });
+  o.v = "2.6";
   return o;
 }
 
@@ -556,9 +594,9 @@ function renderCuentas(){
       '<div class="fila"><span class="et"><b>Vale desde</b><i>Se descuenta lo posterior a esta hora</i></span>'+
       '<input class="dato fecha" type="datetime-local" data-corte="cuentas:'+i+'" value="'+(ct.desde||"")+'"></div>';
     if(post.length){
-      h += '<div class="fila"><span class="et"><b>'+post.length+' '+(post.length===1?"compra":"compras")+' desde entonces</b>'+
-        '<i>Descontadas del saldo de arriba</i></span>'+
-        '<span class="num neg">−'+clp(gasto)+'</span></div>'+
+      h += '<div class="fila"><span class="et"><b>'+post.length+' '+(post.length===1?"movimiento":"movimientos")+' desde entonces</b>'+
+        '<i>Aplicados al saldo de arriba</i></span>'+
+        '<span class="num '+(gasto>=0?"neg":"pos")+'">'+(gasto>=0 ? "−"+clp(gasto) : "+"+clp(-gasto))+'</span></div>'+
         '<div class="fila"><span class="et"><b>Disponible estimado</b><i>Confírmalo contra el banco cuando puedas</i></span>'+
         '<span style="display:flex;align-items:center;gap:10px">'+
         '<span class="num '+(est<0?"neg":"")+'" style="font-size:17px">'+clp(est)+'</span>'+
@@ -575,7 +613,7 @@ function renderCuentas(){
   h += '<div class="tarjeta"><div class="cab"><h3>Efectivo total</h3><span class="eyebrow">Suma</span></div>'+
        '<div class="fila"><span class="et"><b>Dinero realmente disponible</b><i>No incluye cupos ni líneas de crédito</i></span>'+
        '<span class="num" style="font-size:17px">'+clp(c.efectivo)+'</span></div>'+
-       '<div class="aviso">El estimado descuenta las compras que avisa el banco por correo. No sabe de sueldos, transferencias recibidas, pagos automáticos ni giros en cajero. Cuando mires el saldo real, escríbelo aquí y el conteo parte de cero.</div></div>';
+       '<div class="aviso">El estimado usa lo que el banco avisa por correo: compras, giros en cajero y transferencias en ambos sentidos. Lo que no avisa —sueldos, pagos automáticos, comisiones— se registra a mano en Movimientos. Cuando mires el saldo real, escríbelo aquí y el conteo parte de cero.</div></div>';
   document.getElementById("t-cuentas").innerHTML = h;
 }
 
@@ -600,8 +638,9 @@ function renderTarjetas(){
       '<div class="fila"><span class="et"><b>Vale desde</b><i>Se descuenta lo posterior a esta hora</i></span>'+
       '<input class="dato fecha" type="datetime-local" data-corte="tarjetas:'+i+'" value="'+(tc.desde||"")+'"></div>';
     if(post.length){
-      h += '<div class="fila"><span class="et"><b>'+post.length+' '+(post.length===1?"compra":"compras")+' desde entonces</b>'+
-        '<i>Suben la deuda, bajan el cupo</i></span><span class="num neg">−'+fm(gasto)+'</span></div>'+
+      h += '<div class="fila"><span class="et"><b>'+post.length+' '+(post.length===1?"movimiento":"movimientos")+' desde entonces</b>'+
+        '<i>Las compras suben la deuda; los pagos la bajan</i></span>'+
+        '<span class="num '+(gasto>=0?"neg":"pos")+'">'+(gasto>=0 ? "−"+fm(gasto) : "+"+fm(-gasto))+'</span></div>'+
         '<div class="fila"><span class="et"><b>Cupo disponible estimado</b><i>'+pct(Math.max(0,100-p))+' libre</i></span>'+
         '<span style="display:flex;align-items:center;gap:10px">'+
         '<span class="num '+(disp<0?"neg":"")+'" style="font-size:17px">'+fm(disp)+'</span>'+
@@ -662,6 +701,7 @@ function gastoMes(ym){
   const por = {}; let total = 0, abonos = 0;
   E.mov.forEach(m=>{
     if(String(m.f).slice(0,7) !== ym) return;
+    if(m.p) return;                          // mover plata entre cuentas propias no es gasto ni ingreso
     const v = montoCLP(m);
     if(esAbono(m)){ abonos += v; return; }   // un ingreso no es gasto
     const c = catDe(m);
@@ -684,7 +724,7 @@ function renderGastos(){
     '<div class="fila"><span class="et"><b>Contra '+mesLargo(prev)+'</b><i>'+(b.total ? "Ese mes fueron "+clp(b.total) : "Sin registros ese mes")+'</i></span>'+
     '<span class="delta '+(b.total ? (dif>0?"neg":"pos") : "")+'">'+
     (b.total ? (dif>0?"+":"−")+clp(Math.abs(dif))+" · "+(dif>0?"+":"−")+pct(Math.abs(difPct)) : "—")+'</span></div>'+
-    (a.abonos ? '<div class="fila"><span class="et"><b>Ingresos del mes</b><i>Registrados a mano</i></span>'+
+    (a.abonos ? '<div class="fila"><span class="et"><b>Ingresos del mes</b><i>Transferencias recibidas y abonos registrados</i></span>'+
       '<span class="num pos" style="font-size:16px">+'+clp(a.abonos)+'</span></div>' : '')+'</div>';
 
   // Serie de los últimos 6 meses
@@ -936,6 +976,90 @@ function leerTexto(txt){
     });
   }
 
+  /* Transferencias, de serviciodetransferencias@bancochile.cl.
+     Las recibidas entran (abono) y las enviadas salen (cargo). */
+  txt.split(/Comprobante de/i).forEach(b=>{
+    if(!/transferencia/i.test(b)) return;
+    const f = fechaLarga(b);
+    const mm = /Monto\s*\$\s?([\d.,]+)/i.exec(b);
+    if(!f || !mm) return;
+    const monto = numCL(mm[1]);
+    if(monto <= 0) return;
+    if(/ha efectuado una transferencia\s+de fondos a tu cuenta/i.test(b)){
+      const q = /cliente\s+([\s\S]+?)\s+ha efectuado/i.exec(b);
+      const bco = /Banco\s+(Banco[^\n]*|BancoEstado[^\n]*)/i.exec(b);
+      const nro = /Cuenta destino[\s\S]{0,80}?([\d][\d\-]{6,})/i.exec(b);
+      out.push({
+        f, d: ("TRANSF DE " + (q ? q[1] : "TERCERO")).replace(/\s+/g," ").toUpperCase().slice(0,40),
+        m: monto, mon: "CLP",
+        cta: ctaDestino(bco ? bco[1] : "", nro ? nro[1] : ""),
+        k: "abono", o: "correo"
+      });
+    } else if(/has realizado una Transferencia a terceros/i.test(b)){
+      const q = /Nombre y Apellido\s+([^\n]+)/i.exec(b);
+      out.push({
+        f, d: ("TRANSF A " + (q ? q[1] : "TERCERO")).replace(/\s+/g," ").toUpperCase().slice(0,40),
+        m: monto, mon: "CLP", cta: "bch-cc", k: "cargo", o: "correo"
+      });
+    }
+  });
+
+  /* Santander avisa cuando quien te transfiere es cliente de ellos. Dos formatos,
+     ninguno trae hora: se usa el final del día para que el corte no los deje fuera. */
+  let s;
+  const sanA = /nuestro cliente\s+([\s\S]+?)\s+realiz[oó] una transferencia a tu cuenta/i;
+  const sanB = /instruido por nuestro cliente\s+([\s\S]+?),\s*le informamos/i;
+  txt.split(/Aviso de Transferencia de Fondos|Comprobante\s+Transferencia de fondos/i).forEach(b=>{
+    /* Comprobante de una transferencia que hiciste desde Santander. Trae origen y
+       destino: si las dos cuentas son tuyas, es un traspaso y genera los dos lados. */
+    const env = /Te enviamos el detalle de la transferencia realizada el (\d{2})\/(\d{2})\/(\d{4})/i.exec(b);
+    if(env){
+      const me = /Monto transferido[\s\S]{0,160}?\$\s?([\d.,]+)/i.exec(b);
+      if(!me) return;
+      const mo = numCL(me[1]);
+      if(mo <= 0) return;
+      const fe = env[3]+"-"+env[2]+"-"+env[1]+"T23:59";
+      const or = /Datos de origen[\s\S]{0,400}?N[ºo°]?\s*de cuenta\s+([\d][\d\-]{6,})/i.exec(b);
+      const de = /Datos de destino[\s\S]{0,500}?N[ºo°]?\s*de cuenta\s+([\d][\d\-]{6,})/i.exec(b);
+      const nom = /Datos de destino[\s\S]{0,200}?Nombre\s+([^\n]+)/i.exec(b);
+      const cOr = ctaPorNum(or ? or[1] : "") || "san-cc";
+      const cDe = ctaPorNum(de ? de[1] : "");
+      const propio = !!cDe && cDe !== cOr;
+      out.push({
+        f: fe, d: (propio ? "TRASPASO ENTRE MIS CUENTAS" : "TRANSF A " + (nom ? nom[1] : "TERCERO"))
+          .replace(/\s+/g," ").toUpperCase().slice(0,40),
+        m: mo, mon: "CLP", cta: cOr, k: "cargo", p: propio ? 1 : 0, o: "correo"
+      });
+      if(propio) out.push({
+        f: fe, d: "TRASPASO ENTRE MIS CUENTAS", m: mo, mon: "CLP", cta: cDe, k: "abono", p: 1, o: "correo"
+      });
+      return;
+    }
+
+    const esA = sanA.test(b), esB = sanB.test(b);
+    if(!esA && !esB) return;
+    const mm = /Monto transferido[\s\S]{0,160}?\$\s?([\d.,]+)/i.exec(b);
+    if(!mm) return;
+    const monto = numCL(mm[1]);
+    if(monto <= 0) return;
+    let f = null;
+    if((s = /con fecha[:\s]+(\d{2})\/(\d{2})\/(\d{4})/i.exec(b))) f = s[3]+"-"+s[2]+"-"+s[1]+"T23:59";
+    else if((s = /Fecha:\s*(\d{2})-(\d{2})-(\d{4})/i.exec(b))) f = s[3]+"-"+s[2]+"-"+s[1]+"T23:59";
+    if(!f) return;
+    const quien = (esA ? sanA.exec(b) : sanB.exec(b))[1];
+    let bco = "", nro = "";
+    if((s = /hacia su cuenta del banco\s+([\s\S]*?)\s+nro\.?\s*([\d-]+)/i.exec(b))){ bco = s[1]; nro = s[2]; }
+    else {
+      const bb = /Banco\s+((?:Banco|BANCO)[^\n]*)/i.exec(b);
+      const nn = /N[ºo°]?\s*de cuenta\s+([\d][\d\-]{6,})/i.exec(b);
+      bco = bb ? bb[1] : ""; nro = nn ? nn[1] : "";
+    }
+    out.push({
+      f, d: ("TRANSF DE " + quien).replace(/\s+/g," ").toUpperCase().slice(0,40),
+      m: monto, mon: "CLP", cta: ctaDestino(bco, nro), k: "abono", o: "correo"
+    });
+  });
+
   const fin = /Invertiste\s+(?:US ?\$ ?)?([\d.,]+)\s+.{0,30}?en\s+([\d.,]+)\s+acciones de\s+(.+?)(?:\r|\n|$)/gi;
   const inv = [];
   while((m = fin.exec(txt)) !== null){
@@ -965,7 +1089,9 @@ document.getElementById("btnLimpiarTexto").addEventListener("click", ()=>{
 });
 
 /* ---------------- propuestas ---------------- */
-function claveMov(m){ return m.f + "|" + m.d + "|" + m.m; }
+/* La cuenta y el tipo entran en la clave: un traspaso propio son dos movimientos
+   con la misma fecha, detalle y monto, pero en cuentas distintas. */
+function claveMov(m){ return m.f+"|"+m.d+"|"+m.m+"|"+(m.cta||"")+"|"+(m.k||"cargo"); }
 function mostrarPropuestas(lista){
   const ya = new Set(E.mov.map(claveMov));
   const vistos = new Set();
@@ -985,8 +1111,8 @@ function mostrarPropuestas(lista){
   document.getElementById("propuestas").innerHTML = propuestas.map((m,i)=>
     '<div class="fila"><label class="et" style="display:flex;gap:10px;align-items:center;cursor:pointer">'+
     '<input type="checkbox" checked data-p="'+i+'" style="accent-color:var(--efectivo);width:16px;height:16px">'+
-    '<span><b>'+m.d+'</b><i>'+fechaCorta(m.f)+' · '+nombreCta(m.cta)+'</i></span></label>'+
-    '<span class="num">'+(m.mon==="USD"?usd(m.m):clp(m.m))+'</span></div>').join("");
+    '<span><b>'+m.d+'</b><i>'+fechaCorta(m.f)+' · '+nombreCta(m.cta)+(esAbono(m)?" · ingreso":"")+'</i></span></label>'+
+    '<span class="num'+(esAbono(m)?" pos":"")+'">'+(esAbono(m)?"+":"")+(m.mon==="USD"?usd(m.m):clp(m.m))+'</span></div>').join("");
   irA("sync");
   caja.scrollIntoView({behavior:"smooth", block:"nearest"});
 }
@@ -1021,8 +1147,10 @@ async function sincronizar(silencioso){
     const lista = (j.mov||[]).map(m=>({
       f: m.f, d: String(m.d||"").toUpperCase().slice(0,40), m: numCL(m.m),
       mon: m.mon==="USD" ? "USD" : "CLP",
-      cta: m.tipo==="credito" ? (m.mon==="USD"?"bch-usd":"bch-tc") : "bch-cc",
-      k: "cargo",
+      cta: m.tipo==="credito" ? (m.mon==="USD"?"bch-usd":"bch-tc")
+         : (m.tipo==="santander" ? "san-cc" : "bch-cc"),
+      k: m.k==="abono" ? "abono" : "cargo",
+      p: m.p ? 1 : 0,
       o: "auto"
     })).filter(m=>m.f && m.m>0);
     E.sync.ultima = new Date().toISOString();
