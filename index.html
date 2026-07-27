@@ -131,6 +131,21 @@ select.mini:hover{color:var(--texto);border-color:var(--linea)}
 .serie .et{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--tenue)}
 .serie .vl{font-family:var(--mono);font-size:9.5px;color:var(--suave);font-variant-numeric:tabular-nums}
 
+.reparto{display:flex;gap:18px;align-items:center;padding-bottom:14px;border-bottom:1px solid var(--linea);margin-bottom:4px}
+.anillo{width:140px;height:140px;flex:none}
+.an-cifra{font-family:var(--mono);font-size:17px;font-weight:600;fill:var(--texto);font-variant-numeric:tabular-nums}
+.an-pie{font-family:var(--mono);font-size:8px;fill:var(--tenue);letter-spacing:.16em;text-transform:uppercase}
+.leyenda-cat{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
+.leyenda-cat .chip{justify-content:flex-start}
+.leyenda-cat .chip b{margin-left:auto;color:var(--texto);font-size:11px}
+.comercio{padding:9px 0;border-top:1px solid var(--linea)}
+.comercio:first-child{border-top:0}
+.comercio .n{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.comercio .veces{font-style:normal;font-family:var(--mono);font-size:10px;color:var(--tenue);margin-left:6px}
+@media (max-width:520px){
+  .reparto{flex-direction:column;gap:12px}
+  .leyenda-cat{width:100%}
+}
 .regla{display:flex;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--linea)}
 .regla:first-of-type{border-top:0}
 .regla input.texto{flex:1;width:auto;font-size:11.5px;padding:6px 8px;text-transform:uppercase}
@@ -161,7 +176,7 @@ input.dato.fecha{width:auto;min-width:180px;text-align:left;font-size:12px;color
 <header>
   <div class="marca">
     <h1>PATRIMONIO</h1>
-    <div class="sub">Panel financiero personal · v2.6</div>
+    <div class="sub">Panel financiero personal · v2.7</div>
   </div>
   <div class="fecha">
     <div class="eyebrow">Actualizado</div>
@@ -368,7 +383,7 @@ function fechaLarga(t){
 const CORTE_INICIAL = "2026-07-24T23:59";
 
 const INICIAL = {
-  v: "2.6",
+  v: "2.7",
   sello: "2026-07-24",
   usdclp: 936.39,
   reglas: REGLAS_BASE.slice(),
@@ -464,7 +479,7 @@ function normaliza(o){
   o.cuentas.forEach(c=>{
     if(!c.num){ const i = INICIAL.cuentas.find(x=>x.id===c.id); if(i) c.num = i.num; }
   });
-  o.v = "2.6";
+  o.v = "2.7";
   return o;
 }
 
@@ -696,6 +711,53 @@ function mesesConDatos(){
   s.add(new Date().toISOString().slice(0,7));
   return [...s].sort().reverse();
 }
+/* Agrupa las variantes de un mismo comercio: MERPAGO*RAFA y MERPAGO*OPEN25
+   son el mismo Mercado Pago; COPEC 40197 y COPEC 40200, la misma Copec. */
+function comercio(d){
+  let s = String(d||"").toUpperCase().trim();
+  // Pasarelas que ponen el comercio real después del asterisco: TUU*PANADERIA
+  s = s.replace(/^(TUU|SUMUP|SUM UP)\s*\*?\s*/,"").trim();
+  // En Mercado Pago el sufijo es la persona que cobra, no el comercio
+  if(/^MER(PAGO|CADOPAGO|CADO\s?PAGO)/.test(s)) return "MERCADO PAGO";
+  s = s.split("*")[0].trim();
+  s = s.replace(/\s+\d[\d\.\-]*$/,"").trim();   // COPEC 40197
+  s = s.replace(/^\d+[\s\-]+/,"").trim();       // 15548-BK PASEO ES
+  return s || String(d||"").toUpperCase().trim() || "SIN DETALLE";
+}
+
+/* Dónde más gastaste en el mes. Ignora traspasos e ingresos. */
+function topComercios(ym, n){
+  const g = {};
+  E.mov.forEach(m=>{
+    if(String(m.f).slice(0,7) !== ym || m.p || esAbono(m)) return;
+    const k = comercio(m.d);
+    if(!g[k]) g[k] = {n:k, total:0, veces:0, cat:catDe(m)};
+    g[k].total += montoCLP(m);
+    g[k].veces++;
+  });
+  return Object.keys(g).map(k=>g[k]).sort((a,b)=>b.total-a.total).slice(0, n||8);
+}
+
+/* Anillo de proporciones, dibujado a mano con un círculo por segmento. */
+function anillo(filas, total){
+  const R = 54, GR = 22, C = 2*Math.PI*R;
+  if(!total) return "";
+  let off = 0;
+  const segs = filas.map(x=>{
+    const largo = (x.v/total)*C;
+    const s = '<circle cx="70" cy="70" r="'+R+'" fill="none" stroke="'+x.c.col+'" stroke-width="'+GR+'"'+
+      ' stroke-dasharray="'+largo.toFixed(2)+' '+(C-largo).toFixed(2)+'"'+
+      ' stroke-dashoffset="'+(-off).toFixed(2)+'" transform="rotate(-90 70 70)"></circle>';
+    off += largo;
+    return s;
+  }).join("");
+  return '<svg viewBox="0 0 140 140" class="anillo" role="img" aria-label="Reparto del gasto por categoría">'+
+    '<circle cx="70" cy="70" r="'+R+'" fill="none" stroke="var(--panel2)" stroke-width="'+GR+'"></circle>'+
+    segs+
+    '<text x="70" y="66" text-anchor="middle" class="an-cifra">'+clp(total).replace("$","")+'</text>'+
+    '<text x="70" y="82" text-anchor="middle" class="an-pie">gastado</text></svg>';
+}
+
 /* Suma por categoría de un mes dado. Devuelve {total, por:{cat:monto}} */
 function gastoMes(ym){
   const por = {}; let total = 0, abonos = 0;
@@ -744,6 +806,10 @@ function renderGastos(){
   if(!filas.length){
     h += '<p class="nota" style="margin-top:0">Sin movimientos registrados en este mes.</p>';
   }else{
+    h += '<div class="reparto">'+anillo(filas, a.total)+
+      '<div class="leyenda-cat">'+filas.map(x=>
+        '<span class="chip"><i style="background:'+x.c.col+'"></i>'+x.c.n+
+        ' <b class="num">'+pct(x.v/a.total*100)+'</b></span>').join("")+'</div></div>';
     filas.forEach(x=>{
       const d = x.v - x.p;
       h += '<div class="catfila"><div class="catcab">'+
@@ -758,6 +824,23 @@ function renderGastos(){
       cesaron.map(x=>x.c.n.toLowerCase()+" "+clp(x.p)).join(", ")+'.</p>';
   }
   h += '</div>';
+
+  // Dónde se fue, por comercio
+  const tops = topComercios(ym, 10);
+  if(tops.length){
+    const mayor = tops[0].total || 1;
+    h += '<div class="tarjeta"><div class="cab"><h3>Dónde se fue</h3><span class="eyebrow">Top comercios</span></div>'+
+      '<p class="nota" style="margin-top:0">Las variantes de un mismo comercio se suman: los MERPAGO* van juntos, igual que las distintas Copec.</p>'+
+      '<div style="margin-top:12px">';
+    tops.forEach(t=>{
+      const c = catPorId(t.cat);
+      h += '<div class="comercio"><div class="catcab">'+
+        '<span class="n">'+t.n+' <i class="veces">'+t.veces+(t.veces===1?" vez":" veces")+'</i></span>'+
+        '<span class="m">'+clp(t.total)+'</span></div>'+
+        '<div class="catbarra"><div style="width:'+Math.min(100,t.total/mayor*100)+'%;background:'+c.col+'"></div></div></div>';
+    });
+    h += '</div></div>';
+  }
 
   // Reglas editables
   h += '<div class="tarjeta"><div class="cab"><h3>Reglas de categoría</h3><span class="eyebrow">'+E.reglas.length+' reglas</span></div>'+
