@@ -176,7 +176,7 @@ input.dato.fecha{width:auto;min-width:180px;text-align:left;font-size:12px;color
 <header>
   <div class="marca">
     <h1>PATRIMONIO</h1>
-    <div class="sub">Panel financiero personal · v2.7</div>
+    <div class="sub">Panel financiero personal · v2.8</div>
   </div>
   <div class="fecha">
     <div class="eyebrow">Actualizado</div>
@@ -312,6 +312,7 @@ const CATS = [
   {id:"salud",      n:"Salud",           col:"#5FBF8E"},
   {id:"ocio",       n:"Ocio",            col:"#D9615A"},
   {id:"compras",    n:"Compras",         col:"#C3729B"},
+  {id:"trabajo",    n:"Trabajo · Averarq", col:"#3FA7D6"},
   {id:"efectivo",   n:"Giros en efectivo", col:"#9AA5B1"},
   {id:"transferencias", n:"Transferencias", col:"#7E8AA2"},
   {id:"otros",      n:"Sin clasificar",  col:"#5C6675"}
@@ -336,7 +337,10 @@ const REGLAS_BASE = [
   {t:"NETFLIX", c:"servicios"}, {t:"SPOTIFY", c:"servicios"}, {t:"GOOGLE", c:"servicios"},
   {t:"APPLE", c:"servicios"}, {t:"ENTEL", c:"servicios"}, {t:"MOVISTAR", c:"servicios"},
   {t:"CLARO", c:"servicios"}, {t:"VTR", c:"servicios"}, {t:"PAGO ONLINE", c:"servicios"},
-  {t:"KUSHK", c:"servicios"}, {t:"ADOBE", c:"servicios"}, {t:"AUTODESK", c:"servicios"},
+  {t:"KUSHK", c:"servicios"},
+  {t:"ADOBE", c:"trabajo"}, {t:"AUTODESK", c:"trabajo"}, {t:"NOTARIA", c:"trabajo"},
+  {t:"CONSERVADOR", c:"trabajo"}, {t:"COLEGIO DE ARQ", c:"trabajo"}, {t:"IMPRENTA", c:"trabajo"},
+  {t:"PLOTEO", c:"trabajo"}, {t:"I. MUNIC", c:"trabajo"}, {t:"DIRECCION DE OBRAS", c:"trabajo"},
   {t:"EUREKA RECORDS", c:"ocio"}, {t:"GCBA VISITAS", c:"ocio"}, {t:"CINE", c:"ocio"},
   {t:"TEATRO", c:"ocio"}, {t:"MUSEO", c:"ocio"},
   {t:"MERPAGO", c:"compras"}, {t:"MERCADOPAGO", c:"compras"}, {t:"MERCADOLIBRE", c:"compras"},
@@ -383,7 +387,7 @@ function fechaLarga(t){
 const CORTE_INICIAL = "2026-07-24T23:59";
 
 const INICIAL = {
-  v: "2.7",
+  v: "2.8",
   sello: "2026-07-24",
   usdclp: 936.39,
   reglas: REGLAS_BASE.slice(),
@@ -440,6 +444,8 @@ let propuestas = [];
 let promptInstalar = null;
 let MES_VISTA = "";
 const FILTRO = {mes:"todos", cat:"todas", cta:"todas"};
+/* Cómo se está mirando el gasto: por mes o entre dos fechas cualquiera */
+const VISTA = {modo:"mes", ini:"", fin:""};
 
 /* ---------------- almacenamiento ---------------- */
 const almacen = {
@@ -479,7 +485,7 @@ function normaliza(o){
   o.cuentas.forEach(c=>{
     if(!c.num){ const i = INICIAL.cuentas.find(x=>x.id===c.id); if(i) c.num = i.num; }
   });
-  o.v = "2.7";
+  o.v = "2.8";
   return o;
 }
 
@@ -725,11 +731,12 @@ function comercio(d){
   return s || String(d||"").toUpperCase().trim() || "SIN DETALLE";
 }
 
-/* Dónde más gastaste en el mes. Ignora traspasos e ingresos. */
-function topComercios(ym, n){
+/* Dónde más gastaste entre dos fechas. Ignora traspasos e ingresos. */
+function topComercios(ini, fin, n){
   const g = {};
   E.mov.forEach(m=>{
-    if(String(m.f).slice(0,7) !== ym || m.p || esAbono(m)) return;
+    const f = String(m.f).slice(0,10);
+    if(f < ini || f > fin || m.p || esAbono(m)) return;
     const k = comercio(m.d);
     if(!g[k]) g[k] = {n:k, total:0, veces:0, cat:catDe(m)};
     g[k].total += montoCLP(m);
@@ -759,34 +766,79 @@ function anillo(filas, total){
 }
 
 /* Suma por categoría de un mes dado. Devuelve {total, por:{cat:monto}} */
-function gastoMes(ym){
-  const por = {}; let total = 0, abonos = 0;
+function gastoEntre(ini, fin){
+  const por = {}; let total = 0, abonos = 0, n = 0;
   E.mov.forEach(m=>{
-    if(String(m.f).slice(0,7) !== ym) return;
+    const f = String(m.f).slice(0,10);
+    if(f < ini || f > fin) return;
     if(m.p) return;                          // mover plata entre cuentas propias no es gasto ni ingreso
     const v = montoCLP(m);
     if(esAbono(m)){ abonos += v; return; }   // un ingreso no es gasto
     const c = catDe(m);
-    por[c] = (por[c]||0) + v; total += v;
+    por[c] = (por[c]||0) + v; total += v; n++;
   });
-  return {total, por, abonos};
+  return {total, por, abonos, n};
+}
+const gastoMes = ym => gastoEntre(ym+"-01", ym+"-31");
+
+/* Días que abarca un rango, ambos extremos incluidos */
+function dias(ini, fin){
+  const a = new Date(ini+"T12:00"), b = new Date(fin+"T12:00");
+  return Math.max(1, Math.round((b-a)/86400000) + 1);
+}
+/* El rango de igual duración que termina justo antes de ini */
+function rangoPrevio(ini, fin){
+  const n = dias(ini, fin);
+  const f = new Date(new Date(ini+"T12:00") - 86400000);
+  const i = new Date(f - (n-1)*86400000);
+  const iso = x => x.toISOString().slice(0,10);
+  return {ini: iso(i), fin: iso(f)};
 }
 function renderGastos(){
   const meses = mesesConDatos();
   if(!MES_VISTA || meses.indexOf(MES_VISTA) < 0) MES_VISTA = meses[0];
-  const ym = MES_VISTA, prev = mesVecino(ym,-1);
-  const a = gastoMes(ym), b = gastoMes(prev);
+  const ym = MES_VISTA;
+  const porMes = VISTA.modo === "mes";
+  // Rango efectivo según el modo elegido
+  const ini = porMes ? ym+"-01" : VISTA.ini;
+  const fin = porMes ? ym+"-31" : VISTA.fin;
+  const pv  = porMes ? {ini: mesVecino(ym,-1)+"-01", fin: mesVecino(ym,-1)+"-31"} : rangoPrevio(ini, fin);
+  const rot = porMes ? mesLargo(ym) : (fechaCorta(ini)+" al "+fechaCorta(fin));
+  const rotPrev = porMes ? mesLargo(mesVecino(ym,-1)) : "los "+dias(ini,fin)+" días previos";
+
+  const a = gastoEntre(ini, fin), b = gastoEntre(pv.ini, pv.fin);
   const dif = a.total - b.total;
   const difPct = b.total ? (dif/b.total)*100 : 0;
+  // En el mes en curso el promedio se calcula sobre los días corridos, no sobre 31
+  const hoyISO = new Date().toISOString().slice(0,10);
+  const enCurso = porMes && fin > hoyISO && ini <= hoyISO;
+  const nd = dias(ini, enCurso ? hoyISO : fin);
+  const cortoPrev = porMes ? mesCorto(mesVecino(ym,-1)) : (fechaCorta(pv.ini)+"–"+fechaCorta(pv.fin));
 
-  let h = '<div class="tarjeta"><div class="cab"><h3>Gasto del mes</h3>'+
-    '<select class="dato" id="selMes">'+meses.map(x=>'<option value="'+x+'"'+(x===ym?" selected":"")+'>'+mesLargo(x)+'</option>').join("")+'</select></div>'+
-    '<div class="fila"><span class="et"><b>Total gastado</b><i>'+mesLargo(ym)+' · convertido a pesos</i></span>'+
+  let h = '<div class="tarjeta"><div class="cab"><h3>'+(porMes?"Gasto del mes":"Gasto del período")+'</h3>'+
+    '<select class="dato" id="selModo">'+
+      '<option value="mes"'+(porMes?" selected":"")+'>Por mes</option>'+
+      '<option value="rango"'+(porMes?"":" selected")+'>Entre fechas</option></select></div>';
+
+  if(porMes){
+    h += '<div class="fila"><span class="et"><b>Mes</b><i>De los que tienen movimientos</i></span>'+
+      '<select class="dato" id="selMes">'+meses.map(x=>'<option value="'+x+'"'+(x===ym?" selected":"")+'>'+mesLargo(x)+'</option>').join("")+'</select></div>';
+  }else{
+    h += '<div class="fila"><span class="et"><b>Desde</b><i>Primer día incluido</i></span>'+
+      '<input class="dato fecha" type="date" id="rgIni" value="'+ini+'"></div>'+
+      '<div class="fila"><span class="et"><b>Hasta</b><i>Último día incluido</i></span>'+
+      '<input class="dato fecha" type="date" id="rgFin" value="'+fin+'"></div>';
+  }
+
+  h += '<div class="fila"><span class="et"><b>Total gastado</b><i>'+rot+' · convertido a pesos</i></span>'+
     '<span class="num" style="font-size:19px">'+clp(a.total)+'</span></div>'+
-    '<div class="fila"><span class="et"><b>Contra '+mesLargo(prev)+'</b><i>'+(b.total ? "Ese mes fueron "+clp(b.total) : "Sin registros ese mes")+'</i></span>'+
+    '<div class="fila"><span class="et"><b>'+nd+(nd===1?" día":" días")+(enCurso?" corridos":"")+'</b>'+
+    '<i>'+a.n+' '+(a.n===1?"movimiento":"movimientos")+' · promedio por día</i></span>'+
+    '<span class="num" style="font-size:15px">'+clp(a.total/nd)+'</span></div>'+
+    '<div class="fila"><span class="et"><b>Contra '+rotPrev+'</b><i>'+(b.total ? "Entonces fueron "+clp(b.total) : "Sin registros en ese período")+'</i></span>'+
     '<span class="delta '+(b.total ? (dif>0?"neg":"pos") : "")+'">'+
     (b.total ? (dif>0?"+":"−")+clp(Math.abs(dif))+" · "+(dif>0?"+":"−")+pct(Math.abs(difPct)) : "—")+'</span></div>'+
-    (a.abonos ? '<div class="fila"><span class="et"><b>Ingresos del mes</b><i>Transferencias recibidas y abonos registrados</i></span>'+
+    (a.abonos ? '<div class="fila"><span class="et"><b>Ingresos del período</b><i>Transferencias recibidas y abonos registrados</i></span>'+
       '<span class="num pos" style="font-size:16px">+'+clp(a.abonos)+'</span></div>' : '')+'</div>';
 
   // Serie de los últimos 6 meses
@@ -816,17 +868,17 @@ function renderGastos(){
         '<span class="n"><span class="chip"><i style="background:'+x.c.col+'"></i>'+x.c.n+'</span></span>'+
         '<span class="m">'+clp(x.v)+' <span style="color:var(--tenue);font-size:11px">'+(a.total?pct(x.v/a.total*100):"0%")+'</span></span></div>'+
         '<div class="catbarra"><div style="width:'+(a.total? Math.min(100,x.v/a.total*100):0)+'%;background:'+x.c.col+'"></div></div>'+
-        '<div class="catdelta">'+(x.p ? ((d>=0?"+":"−")+clp(Math.abs(d))+" contra "+mesCorto(prev)) : "Sin gasto en "+mesCorto(prev))+'</div></div>';
+        '<div class="catdelta">'+(x.p ? ((d>=0?"+":"−")+clp(Math.abs(d))+" contra "+cortoPrev) : "Sin gasto en "+cortoPrev)+'</div></div>';
     });
   }
   if(cesaron.length){
-    h += '<p class="nota">Sin gasto este mes, con gasto en '+mesCorto(prev)+': '+
+    h += '<p class="nota">Sin gasto en este período, con gasto en '+cortoPrev+': '+
       cesaron.map(x=>x.c.n.toLowerCase()+" "+clp(x.p)).join(", ")+'.</p>';
   }
   h += '</div>';
 
   // Dónde se fue, por comercio
-  const tops = topComercios(ym, 10);
+  const tops = topComercios(ini, fin, 10);
   if(tops.length){
     const mayor = tops[0].total || 1;
     h += '<div class="tarjeta"><div class="cab"><h3>Dónde se fue</h3><span class="eyebrow">Top comercios</span></div>'+
@@ -931,6 +983,22 @@ document.addEventListener("change", ev=>{
 
   // v2.1 — mes en vista, filtros, categoría manual y reglas
   if(el.id === "selMes"){ MES_VISTA = el.value; renderGastos(); return; }
+  if(el.id === "selModo"){
+    VISTA.modo = el.value;
+    // Al pasar a fechas, parte con el mes que estabas mirando
+    if(VISTA.modo === "rango" && !VISTA.ini){
+      VISTA.ini = (MES_VISTA||new Date().toISOString().slice(0,7))+"-01";
+      VISTA.fin = new Date().toISOString().slice(0,10);
+    }
+    renderGastos(); return;
+  }
+  if(el.id === "rgIni" || el.id === "rgFin"){
+    VISTA[el.id === "rgIni" ? "ini" : "fin"] = el.value;
+    if(VISTA.ini && VISTA.fin && VISTA.ini > VISTA.fin){   // si los das al revés, se ordenan solos
+      const t = VISTA.ini; VISTA.ini = VISTA.fin; VISTA.fin = t;
+    }
+    renderGastos(); return;
+  }
   if(el.dataset.f){ FILTRO[el.dataset.f] = el.value; renderMov(); return; }
   if(el.dataset.cat !== undefined){
     const i = +el.dataset.cat;
