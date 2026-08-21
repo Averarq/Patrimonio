@@ -2,7 +2,7 @@
    Guarda la app en el teléfono para que abra sin señal.
    Los datos NO pasan por aquí: viven en el almacenamiento del navegador. */
 
-const VERSION = "patrimonio-v2.8";
+const VERSION = "patrimonio-v3.1";
 const ARCHIVOS = [
   "./",
   "./index.html",

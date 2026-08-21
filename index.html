@@ -174,6 +174,33 @@ select.mini:hover{color:var(--texto);border-color:var(--linea)}
   .reparto{flex-direction:column;gap:12px}
   .leyenda-cat{width:100%}
 }
+/* --- plásticos --- */
+.plasticos{display:flex;gap:12px;overflow-x:auto;padding:2px 2px 14px;scroll-snap-type:x mandatory;scrollbar-width:none}
+.plasticos::-webkit-scrollbar{display:none}
+.plastico{flex:0 0 232px;scroll-snap-align:start;border-radius:14px;padding:14px 15px 13px;
+  box-shadow:0 6px 18px rgba(0,0,0,.38);position:relative;overflow:hidden;min-height:146px;
+  display:flex;flex-direction:column}
+.plastico::after{content:"";position:absolute;right:-30px;top:-30px;width:120px;height:120px;
+  border-radius:50%;background:rgba(255,255,255,.07)}
+.pl-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.pl-banco{font-size:12.5px;font-weight:650;letter-spacing:-.01em}
+.pl-num{font-family:var(--mono);font-size:10px;letter-spacing:.1em;opacity:.75;text-transform:uppercase}
+.pl-tipo{font-size:10.5px;opacity:.8;margin-top:2px}
+.pl-eti{font-family:var(--mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;opacity:.7;margin-top:auto}
+.pl-monto{font-family:var(--mono);font-size:20px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:1px}
+.pl-barra{height:4px;border-radius:2px;background:rgba(255,255,255,.22);overflow:hidden;margin-top:8px}
+.pl-barra div{height:100%;background:rgba(255,255,255,.92)}
+.pl-pie{font-family:var(--mono);font-size:9px;opacity:.72;margin-top:6px;letter-spacing:.02em}
+
+/* --- presupuestos --- */
+.presu{padding:10px 0;border-top:1px solid var(--linea)}
+.presu:first-child{border-top:0}
+.presu .catbarra div{transition:width .4s}
+.presu.alerta .catcab .m{color:var(--efectivo)}
+.presu.pasado .catcab .m{color:var(--deuda)}
+.presu-nuevo{display:grid;grid-template-columns:1fr 110px auto;gap:8px;margin-top:12px;align-items:center}
+@media (max-width:520px){.presu-nuevo{grid-template-columns:1fr 1fr}.presu-nuevo button{grid-column:1/-1}}
+
 .regla{display:flex;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--linea)}
 .regla:first-of-type{border-top:0}
 .regla input.texto{flex:1;width:auto;font-size:11.5px;padding:6px 8px;text-transform:uppercase}
@@ -216,7 +243,7 @@ input.dato.fecha{width:auto;min-width:180px;text-align:left;font-size:12px;color
 <header>
   <div class="marca">
     <h1>PATRIMONIO</h1>
-    <div class="sub">Panel financiero personal · v2.9</div>
+    <div class="sub">Panel financiero personal · v3.1</div>
   </div>
   <div class="fecha">
     <div class="eyebrow">Actualizado</div>
@@ -418,6 +445,7 @@ function ctaDestino(bancoTxt, numTxt){
   if(propia) return propia;
   const b = String(bancoTxt||"");
   if(/santander/i.test(b)) return "san-cc";
+  if(/estado/i.test(b)) return "est-cc";
   if(/chile|edwards|citi/i.test(b)) return "bch-cc";
   return "bch-cc";
 }
@@ -438,15 +466,18 @@ function fechaLarga(t){
 const CORTE_INICIAL = "2026-07-24T23:59";
 
 const INICIAL = {
-  v: "2.9",
+  v: "3.1",
   sello: "2026-07-24",
   usdclp: 936.39,
   usdAuto: "",
   reglas: REGLAS_BASE.slice(),
+  presu: {},                    // tope mensual por categoría: {comida: 150000}
   sync: {url:"", clave:"", ultima:"", dias:7},
   cuentas: [
     {id:"bch-cc", banco:"Banco de Chile", nombre:"Cuenta corriente", num:"7705", saldo:789168, desde:CORTE_INICIAL},
-    {id:"san-cc", banco:"Santander",      nombre:"Cuenta corriente", num:"7950", saldo:0,      desde:CORTE_INICIAL}
+    {id:"san-cc", banco:"Santander",      nombre:"Cuenta corriente", num:"7950", saldo:0,      desde:CORTE_INICIAL},
+    {id:"est-cc", banco:"BancoEstado",    nombre:"Cuenta RUT",       num:"1315", saldo:0,      desde:CORTE_INICIAL},
+    {id:"cash",   banco:"Efectivo",       nombre:"Billetera",        num:"",     saldo:0,      desde:CORTE_INICIAL}
   ],
   lineas: [
     {id:"bch-lc", banco:"Banco de Chile", nombre:"Línea de crédito", cupo:500000, usado:0}
@@ -559,7 +590,17 @@ function normaliza(o){
   o.cuentas.forEach(c=>{
     if(!c.num){ const i = INICIAL.cuentas.find(x=>x.id===c.id); if(i) c.num = i.num; }
   });
-  o.v = "2.9";
+  // Topes de presupuesto: solo categorías conocidas y montos positivos
+  const p = {};
+  Object.keys(o.presu||{}).forEach(k=>{
+    if(CATS.some(c=>c.id===k) && +o.presu[k] > 0) p[k] = +o.presu[k];
+  });
+  o.presu = p;
+  // Cuentas nuevas de versiones posteriores (billetera, cuenta RUT) se agregan solas.
+  INICIAL.cuentas.forEach(base=>{
+    if(!o.cuentas.some(c=>c.id===base.id)) o.cuentas.push(JSON.parse(JSON.stringify(base)));
+  });
+  o.v = "3.1";
   return o;
 }
 
@@ -745,14 +786,69 @@ function ponerEstaticos(){
     : "Usado para convertir USD a pesos";
 }
 
+/* Colores del plástico. El de débito lleva el color del banco; el de crédito,
+   el del plástico real: negro el del Banco de Chile, negro y morado el Santander. */
+const BANCOS = {
+  "Banco de Chile": {a:"#0A1861", b:"#1E3A8A", t:"#FFFFFF"},
+  "Santander":      {a:"#8E0B08", b:"#EC0000", t:"#FFFFFF"},
+  "BancoEstado":    {a:"#A63C00", b:"#F97316", t:"#FFFFFF"},
+  "Efectivo":       {a:"#6B4E14", b:"#E8B14A", t:"#14181D"}
+};
+const CREDITOS = {
+  "Banco de Chile": {a:"#07090C", b:"#252B36", t:"#FFFFFF"},
+  "Santander":      {a:"#120726", b:"#7B2FBE", t:"#FFFFFF"}
+};
+function colorBanco(n, credito){
+  if(credito && CREDITOS[n]) return CREDITOS[n];
+  return BANCOS[n] || {a:"#252E3A", b:"#3A4657", t:"#E7EBF0"};
+}
+
+/* Una tarjeta física: banco, últimos dígitos, disponible y uso del cupo */
+function plastico(o){
+  const cl = colorBanco(o.banco, o.credito);
+  return '<div class="plastico" style="background:linear-gradient(135deg,'+cl.a+','+cl.b+');color:'+cl.t+'">'+
+    '<div class="pl-top"><span class="pl-banco">'+esc(o.banco)+'</span>'+
+      (o.num ? '<span class="pl-num">···'+esc(o.num)+'</span>' : '<span class="pl-num">'+esc(o.etiqueta||"")+'</span>')+'</div>'+
+    '<div class="pl-tipo">'+esc(o.tipo)+'</div>'+
+    '<div class="pl-eti">Disponible</div>'+
+    '<div class="pl-monto">'+o.monto+'</div>'+
+    (o.uso != null
+      ? '<div class="pl-barra"><div style="width:'+Math.min(100,Math.max(0,o.uso))+'%"></div></div>'+
+        '<div class="pl-pie">'+pct(o.uso)+' del cupo usado · deuda '+o.deuda+'</div>'
+      : '<div class="pl-pie">'+esc(o.pie||"")+'</div>')+
+    '</div>';
+}
+
+function renderPlasticos(){
+  const t = E.usdclp||1;
+  let p = E.cuentas.map(ct=>plastico({
+    banco: ct.banco, num: ct.num, etiqueta: ct.id==="cash" ? "billetes" : "débito",
+    tipo: ct.nombre, monto: clp(saldoCta(ct)),
+    pie: ct.id==="cash" ? "Efectivo en el bolsillo" : "Estimado desde el último corte"
+  })).join("");
+  p += E.tarjetas.map(tc=>{
+    const disp = dispTcDe(tc), usado = (+tc.cupo||0) - disp;
+    const fm = tc.mon==="USD" ? usd : clp;
+    return plastico({
+      banco: tc.banco, num: tc.num, etiqueta: "crédito", credito: true,
+      tipo: "Tarjeta de crédito · "+tc.mon,
+      monto: fm(disp), uso: (usado/(tc.cupo||1))*100, deuda: fm(usado)
+    });
+  }).join("");
+  return '<div class="plasticos">'+p+'</div>';
+}
+
 function renderCuentas(c){
-  let h = "";
+  let h = renderPlasticos();
   E.cuentas.forEach((ct,i)=>{
     const post = movPost(ct.id, ct.desde);
     const gasto = gastoPost(ct.id, ct.desde, "CLP");
     const est = saldoCta(ct);
-    h += '<div class="tarjeta"><div class="cab"><h3>'+esc(ct.banco)+'</h3><span class="eyebrow">'+(ct.num?"···"+esc(ct.num):"débito")+'</span></div>'+
-      '<div class="fila"><span class="et"><b>'+esc(ct.nombre)+'</b><i>Saldo que leíste del banco</i></span>'+
+    const esCash = ct.id === "cash";
+    h += '<div class="tarjeta"><div class="cab"><h3>'+esc(ct.banco)+'</h3><span class="eyebrow">'+
+      (esCash ? "billetes" : (ct.num?"···"+esc(ct.num):"débito"))+'</span></div>'+
+      '<div class="fila"><span class="et"><b>'+esc(ct.nombre)+'</b><i>'+
+      (esCash ? "Lo que contaste en el bolsillo" : "Saldo que leíste del banco")+'</i></span>'+
       '<input class="dato" data-r="cuentas" data-i="'+i+'" data-k="saldo" value="'+ct.saldo+'" inputmode="numeric"></div>'+
       '<div class="fila"><span class="et"><b>Vale desde</b><i>Se descuenta lo posterior a esta hora</i></span>'+
       '<input class="dato fecha" type="datetime-local" data-corte="cuentas:'+i+'" value="'+(ct.desde||"")+'"></div>';
@@ -776,7 +872,7 @@ function renderCuentas(c){
   h += '<div class="tarjeta"><div class="cab"><h3>Efectivo total</h3><span class="eyebrow">Suma</span></div>'+
        '<div class="fila"><span class="et"><b>Dinero realmente disponible</b><i>No incluye cupos ni líneas de crédito</i></span>'+
        '<span class="num c17">'+clp(c.efectivo)+'</span></div>'+
-       '<div class="aviso">El estimado usa lo que el banco avisa por correo: compras, giros en cajero y transferencias en ambos sentidos. Lo que no avisa —sueldos, pagos automáticos, comisiones— se registra a mano en Movimientos. Cuando mires el saldo real, escríbelo aquí y el conteo parte de cero.</div></div>';
+       '<div class="aviso">El estimado usa lo que el banco avisa por correo: compras, giros en cajero y transferencias en ambos sentidos. Un giro no se cuenta como gasto: pasa de la cuenta a la billetera. Lo que no avisa —sueldos, pagos automáticos, comisiones y lo que gastas en billetes— se registra a mano en Movimientos. Cuando cuentes el bolsillo o mires el saldo real, escríbelo aquí y el conteo parte de cero.</div></div>';
   const el = document.getElementById("t-cuentas");
   el.innerHTML = h;
   animar(el);
@@ -944,7 +1040,11 @@ function rangoPrevio(ini, fin){
 }
 function renderGastos(){
   const meses = mesesConDatos();
-  if(!MES_VISTA || meses.indexOf(MES_VISTA) < 0) MES_VISTA = meses[0];
+  // Al abrir, parte en el mes más reciente que tenga movimientos: los primeros
+  // días de un mes nuevo la vista saldría vacía sin nada que mirar.
+  if(!MES_VISTA || meses.indexOf(MES_VISTA) < 0){
+    MES_VISTA = meses.find(m=>E.mov.some(x=>String(x.f).slice(0,7)===m)) || meses[0];
+  }
   const ym = MES_VISTA;
   const porMes = VISTA.modo === "mes";
   // Rango efectivo según el modo elegido
@@ -1030,6 +1130,38 @@ function renderGastos(){
       cesaron.map(x=>x.c.n.toLowerCase()+" "+clp(x.p)).join(", ")+'.</p>';
   }
   h += '</div>';
+
+  /* Presupuestos: solo tienen sentido mirando un mes completo */
+  if(porMes){
+    const conTope = Object.keys(E.presu);
+    h += '<div class="tarjeta"><div class="cab"><h3>Presupuestos</h3><span class="eyebrow">'+
+      (conTope.length ? conTope.length+' con tope' : 'sin topes')+'</span></div>';
+    if(!conTope.length){
+      h += '<p class="nota" style="margin-top:0">Fija un tope mensual a una categoría y verás cuánto llevas gastado.</p>';
+    }else{
+      conTope.map(id=>({c:catPorId(id), tope:E.presu[id], v:a.por[id]||0}))
+        .sort((x,y)=> (y.v/y.tope) - (x.v/x.tope))
+        .forEach(x=>{
+          const p = x.tope ? (x.v/x.tope)*100 : 0;
+          const cls = p >= 100 ? " pasado" : (p >= 80 ? " alerta" : "");
+          const queda = x.tope - x.v;
+          h += '<div class="presu'+cls+'"><div class="catcab">'+
+            '<span class="n"><span class="chip"><i style="background:'+x.c.col+'"></i>'+x.c.n+'</span></span>'+
+            '<span class="m">'+clp(x.v)+' <span style="color:var(--tenue);font-size:11px">de '+clp(x.tope)+'</span></span></div>'+
+            '<div class="catbarra"><div style="width:'+Math.min(100,p)+'%;background:'+
+              (p>=100 ? "var(--deuda)" : (p>=80 ? "var(--efectivo)" : x.c.col))+'"></div></div>'+
+            '<div class="catdelta">'+(queda >= 0
+              ? "Te quedan "+clp(queda)+" · "+pct(p)+" usado"
+              : "Te pasaste por "+clp(-queda))+
+            ' <button class="borrar" data-borra-presu="'+x.c.id+'" title="Quitar tope">×</button></div></div>';
+        });
+    }
+    h += '<div class="presu-nuevo">'+
+      '<select class="dato" id="pCat">'+CATS.filter(c=>c.id!=="otros").map(c=>
+        '<option value="'+c.id+'">'+c.n+'</option>').join("")+'</select>'+
+      '<input class="dato" id="pMonto" placeholder="Tope mensual" inputmode="numeric">'+
+      '<button class="ghost" id="btnPresu">Fijar tope</button></div></div>';
+  }
 
   // Dónde se fue, por comercio
   const tops = topComercios(ini, fin, 10);
@@ -1265,6 +1397,16 @@ document.addEventListener("click", ev=>{
     }
     return;
   }
+  const bp = ev.target.closest("[data-borra-presu]");
+  if(bp){ delete E.presu[bp.dataset.borraPresu]; guardar(); render(); return; }
+
+  if(ev.target.id === "btnPresu"){
+    const cat = document.getElementById("pCat").value;
+    const monto = numCL(document.getElementById("pMonto").value);
+    if(monto > 0){ E.presu[cat] = monto; guardar(); render(); }
+    return;
+  }
+
   if(ev.target.id === "btnLimpiarFiltro"){
     FILTRO.mes = "todos"; FILTRO.cat = "todas"; FILTRO.cta = "todas"; FILTRO.q = "";
     renderMov();
@@ -1346,15 +1488,17 @@ function leerTexto(txt){
      "se ha realizado un giro en Cajero por $200.000 con cargo a Cuenta ****7705 el 13/07/2026 12:50" */
   const reGiro = /giro en ([A-Za-zÁÉÍÓÚáéíóúñÑ]+)\s+por\s+(US ?\$|\$)\s?([\d.,]+)\s+con\s+cargo a Cuenta\s+\*{0,4}(\d{4})\s+el\s+(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/gi;
   while((m = reGiro.exec(txt)) !== null){
-    out.push({
+    /* Sacar plata del cajero no es gastarla: sale de la cuenta y entra a la
+       billetera. El gasto se registra cuando gastas esos billetes. */
+    const base = {
       f: m[7]+"-"+m[6]+"-"+m[5]+"T"+m[8],
       d: ("GIRO EN " + m[1]).toUpperCase().slice(0,40),
       m: numCL(m[3]),
       mon: /US/i.test(m[2]) ? "USD" : "CLP",
-      cta: "bch-cc",
-      k: "cargo",
-      o: "correo"
-    });
+      p: 1, o: "correo"
+    };
+    out.push(Object.assign({}, base, {cta:"bch-cc", k:"cargo"}));
+    out.push(Object.assign({}, base, {cta:"cash",   k:"abono"}));
   }
 
   /* Transferencias, de serviciodetransferencias@bancochile.cl.
@@ -1550,8 +1694,10 @@ async function sincronizar(origen){
     const lista = (j.mov||[]).map(m=>({
       f: m.f, d: String(m.d||"").toUpperCase().slice(0,40), m: numCL(m.m),
       mon: m.mon==="USD" ? "USD" : "CLP",
-      cta: m.tipo==="credito" ? (m.mon==="USD"?"bch-usd":"bch-tc")
-         : (m.tipo==="santander" ? "san-cc" : "bch-cc"),
+      cta: m.tipo==="credito"  ? (m.mon==="USD"?"bch-usd":"bch-tc")
+         : m.tipo==="santander" ? "san-cc"
+         : m.tipo==="estado"    ? "est-cc"
+         : m.tipo==="efectivo"  ? "cash" : "bch-cc",
       k: m.k==="abono" ? "abono" : "cargo",
       p: m.p ? 1 : 0,
       o: "auto"
