@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0f1115">
+<title>Examen RPA · Estudio por voz</title>
+<style>
+:root{
+  --bg:#0f1115; --panel:#181b22; --line:#2a2f3a; --fg:#eef0f4; --mut:#9aa3b2;
+  --acc:#FC4C02; --ok:#3ecf8e; --bad:#ff5d5d; --warn:#f5b73b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+body{padding:14px 16px calc(24px + env(safe-area-inset-bottom,0px));max-width:720px;margin:0 auto}
+h1{font-size:18px;margin:4px 0 2px}
+.sub{color:var(--mut);font-size:13px;margin:0 0 12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button{font:inherit;color:var(--fg);background:#232835;border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer}
+button:active{transform:scale(.98)}
+button:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:700;font-size:20px;padding:18px;width:100%}
+button.stop{background:#3a1c1c;border-color:#6b2a2a}
+.chips button{padding:8px 12px;font-size:14px;border-radius:999px}
+.chips button[aria-pressed=true]{background:var(--acc);border-color:var(--acc);color:#fff}
+#status{font-size:14px;color:var(--mut);display:flex;align-items:center;gap:8px;min-height:22px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--mut)}
+.dot.speak{background:var(--acc)} .dot.listen{background:var(--ok);animation:p 1s infinite}
+@keyframes p{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.dot.listen{animation:none}}
+#q{font-size:22px;line-height:1.35;margin:8px 0 12px;text-wrap:balance}
+#opts{display:grid;gap:8px}
+#opts button{text-align:left;display:flex;gap:12px;align-items:flex-start;font-size:18px;padding:14px}
+#opts b{background:#0f1115;border-radius:8px;min-width:30px;text-align:center;padding:0 6px}
+#opts button.ok{background:#12352a;border-color:var(--ok)}
+#opts button.bad{background:#3a1c1c;border-color:var(--bad)}
+#expl{color:var(--mut);font-size:15px;margin-top:10px;min-height:20px}
+#heard{color:var(--mut);font-size:13px;min-height:18px}
+.stats{display:flex;gap:16px;font-size:14px;color:var(--mut);flex-wrap:wrap}
+.stats b{color:var(--fg);font-variant-numeric:tabular-nums}
+label{display:flex;gap:10px;align-items:center;font-size:14px;color:var(--mut);flex-wrap:wrap}
+select,input[type=range],textarea{font:inherit;color:var(--fg);background:#0f1115;border:1px solid var(--line);border-radius:10px}
+select{padding:8px}
+textarea{width:100%;min-height:150px;padding:10px;font-size:14px}
+details summary{cursor:pointer;color:var(--mut);padding:4px 0}
+.warn{border-color:#5b4a1d;background:#221d10;color:#f1d58a;font-size:13px}
+.big{font-size:44px;font-weight:800;font-variant-numeric:tabular-nums}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+
+<h1>Examen RPA · Estudio por voz</h1>
+<p class="sub">Teoría para licencia de piloto remoto. Configura todo <b>antes de partir</b> y deja el teléfono quieto: se maneja con la voz.</p>
+
+<div id="nosr" class="card warn" hidden>Este navegador no permite reconocimiento de voz. Usa <b>Chrome en Android</b> (o Chrome/Edge en PC). Mientras tanto funciona el <b>Modo audio</b>, que solo lee y no necesita micrófono.</div>
+
+<div class="card">
+  <div class="row chips" id="modes" role="group" aria-label="Modo">
+    <button data-m="quiz" aria-pressed="true">Quiz hablado</button>
+    <button data-m="audio" aria-pressed="false">Modo audio (solo escuchar)</button>
+  </div>
+  <div style="height:10px"></div>
+  <div class="row chips" id="topics" role="group" aria-label="Temas"></div>
+  <div style="height:10px"></div>
+  <div class="row">
+    <label>Velocidad de voz <input id="rate" type="range" min="0.8" max="1.4" step="0.05" value="1.05"></label>
+    <label><input id="expOk" type="checkbox"> Explicar también si acierto</label>
+  </div>
+</div>
+
+<div class="card">
+  <div class="stats">
+    <span>Aciertos <b id="sOk">0</b></span>
+    <span>Fallos <b id="sBad">0</b></span>
+    <span>Pregunta <b id="sN">0</b>/<b id="sT">0</b></span>
+    <span>Nota <b id="sPct">–</b></span>
+  </div>
+  <div id="status"><span class="dot" id="dot"></span><span id="stxt">Listo para empezar</span></div>
+  <div id="q">Pulsa EMPEZAR. Responde diciendo “uno”, “dos”, “tres” o “cuatro”. También: “repetir”, “explicar”, “siguiente”, “parar”.</div>
+  <div id="opts"></div>
+  <div id="heard"></div>
+  <div id="expl"></div>
+</div>
+
+<div class="row" style="margin-bottom:12px">
+  <button class="primary" id="go">EMPEZAR</button>
+  <button class="stop" id="halt" hidden style="width:100%;font-size:18px;padding:16px">PARAR</button>
+</div>
+
+<div class="card">
+  <details>
+    <summary>Usar mis preguntas reales (pegar banco de preguntas)</summary>
+    <p class="sub">Una pregunta por bloque, separados por una línea en blanco. Marca la correcta con * y, si quieres, agrega una explicación con &gt;.</p>
+<pre style="white-space:pre-wrap;font-size:13px;color:var(--mut);margin:0 0 8px">¿Altura máxima en VLOS?
+a) 100 pies
+*b) 400 pies
+c) 1000 pies
+d) 50 pies
+> 400 pies sobre el terreno.</pre>
+    <textarea id="imp" placeholder="Pega aquí tus preguntas…"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button id="impOk">Cargar mis preguntas</button>
+      <button id="impReset">Volver al banco incluido</button>
+    </div>
+    <div id="impMsg" class="sub"></div>
+  </details>
+</div>
+
+<div class="card warn">Las preguntas incluidas son un repaso general de teoría (meteorología, aerodinámica, navegación, operaciones, factores humanos y reglamento). Las cifras y artículos de la normativa chilena deben confirmarse con el material oficial de tu academia o de la DGAC. Si tienes el banco real, cárgalo arriba.</div>
+
+<script>
+/* ---------- Banco de preguntas: [tema, pregunta, [opciones], índice correcto, explicación] ---------- */
+const BANK = [
+// REGLAMENTO
+["Reglamento","¿Qué organismo regula la operación de aeronaves pilotadas a distancia en Chile?",["La DGAC","El SAG","La Subtel","La Armada"],0,"La Dirección General de Aeronáutica Civil regula la aviación civil, incluidos los drones."],
+["Reglamento","¿Qué norma aeronáutica chilena regula la operación de sistemas de aeronaves pilotadas a distancia?",["DAN 151","DAN 11","DAN 175","DAN 91 solamente"],0,"La DAN 151 trata sobre la operación de aeronaves pilotadas a distancia."],
+["Reglamento","La altura máxima general de operación de un RPA sobre el terreno es de:",["400 pies, unos 120 metros","1000 pies","150 pies","No hay límite"],0,"400 pies AGL, aproximadamente 120 metros. Confirma la cifra con tu banco oficial."],
+["Reglamento","VLOS significa operar:",["Con contacto visual directo con el RPA","Más allá del alcance visual","Solo con gafas FPV","Solo de noche"],0,"Visual Line Of Sight: el piloto mantiene contacto visual directo, sin ayudas salvo lentes correctores."],
+["Reglamento","BVLOS significa operar:",["Más allá del alcance visual directo","Con contacto visual directo","A baja velocidad","Con batería de respaldo"],0,"Beyond Visual Line Of Sight. Requiere condiciones y autorización especiales."],
+["Reglamento","Si vuelas con gafas FPV, normalmente necesitas:",["Un observador visual que vigile el RPA y el espacio aéreo","Nada adicional","Volar solo de noche","Subir sobre 400 pies"],0,"Con FPV pierdes la visión del entorno, por eso se exige un observador."],
+["Reglamento","¿Quién tiene prioridad de paso?",["Toda aeronave tripulada sobre el RPA","El RPA, por ser más pequeño","La más rápida","La que vuela más alto"],0,"El RPA siempre cede el paso a aeronaves tripuladas."],
+["Reglamento","¿Quién es responsable de la operación segura del RPA?",["El piloto remoto","El fabricante","El dueño del terreno","La DGAC"],0,"El piloto remoto es el responsable final de la operación."],
+["Reglamento","Sobre aglomeraciones de personas, un RPA:",["No debe operar sin cumplir las autorizaciones y condiciones de la norma","Puede volar si va alto","Puede volar siempre en modo automático","Solo si es pequeño y sin hélices visibles"],0,"Sobrevolar multitudes es una de las operaciones más restringidas."],
+["Reglamento","Ante un accidente o incidente grave con un RPA, corresponde:",["Informar a la autoridad aeronáutica","Ocultarlo si no hubo heridos","Esperar a que alguien reclame","Solo avisar al fabricante"],0,"Los accidentes e incidentes se reportan a la DGAC."],
+["Reglamento","Antes de operar cerca de un aeródromo, debes:",["Coordinar con la autoridad o servicio de tránsito aéreo y cumplir las restricciones","Volar rápido y bajo","Nada, el RPA es pequeño","Apagar el GPS"],0,"Los aeródromos tienen áreas de restricción y requieren coordinación."],
+["Reglamento","En las cartas aeronáuticas chilenas, la sigla SCP indica una zona:",["Prohibida","Restringida","Peligrosa","De tránsito"],0,"SCP: zona prohibida. SCR: restringida. SCD: peligrosa."],
+["Reglamento","En las cartas chilenas, la sigla SCR indica una zona:",["Restringida","Prohibida","Peligrosa","Reservada para helicópteros"],0,"SCR: zona restringida, el vuelo está condicionado a autorización."],
+["Reglamento","En las cartas chilenas, la sigla SCD indica una zona:",["Peligrosa","Prohibida","Restringida","Controlada"],0,"SCD: zona peligrosa, hay actividades que pueden ser un riesgo para el vuelo."],
+["Reglamento","Un NOTAM sirve para:",["Informar cambios o peligros temporales que afectan al vuelo","Pronosticar el clima","Registrar el RPA","Calcular el peso"],0,"NOTAM: Notice To Air Missions, avisos urgentes sobre instalaciones, servicios o peligros."],
+// METEOROLOGÍA
+["Meteorología","El viento se nombra según la dirección:",["Desde donde sopla","Hacia donde va","Del norte siempre","Perpendicular al suelo"],0,"Un viento del sur sopla desde el sur hacia el norte."],
+["Meteorología","En el hemisferio sur, el viento gira alrededor de una baja presión en sentido:",["Horario","Antihorario","No gira","Depende de la altura solo"],0,"En el hemisferio sur las bajas giran en sentido horario y los anticiclones en antihorario."],
+["Meteorología","Un anticiclón se asocia normalmente con:",["Tiempo estable y despejado","Tormentas","Lluvias intensas","Vientos huracanados"],0,"Alta presión: aire descendente, estabilidad."],
+["Meteorología","La temperatura estándar a nivel del mar (ISA) es:",["15 grados Celsius","0 grados","25 grados","20 grados"],0,"ISA: 15 °C y 1013,25 hPa al nivel del mar."],
+["Meteorología","La presión estándar a nivel del mar (ISA) es:",["1013,25 hPa","1000 hPa","980 hPa","1100 hPa"],0,"1013,25 hectopascales."],
+["Meteorología","En la atmósfera estándar, la temperatura disminuye aproximadamente:",["2 grados por cada 1000 pies","10 grados por cada 1000 pies","0,2 grados por cada 1000 pies","No cambia"],0,"Gradiente estándar: unos 2 °C por 1000 pies, 6,5 °C por km."],
+["Meteorología","Al aumentar la altitud, la presión atmosférica:",["Disminuye","Aumenta","Se mantiene","Se duplica"],0,"A mayor altura hay menos aire encima, por lo tanto menos presión."],
+["Meteorología","La altitud de densidad alta, por calor o altura, produce:",["Menor rendimiento del RPA","Mayor sustentación","Más autonomía","Mejor control"],0,"Aire menos denso: las hélices y alas generan menos empuje y sustentación."],
+["Meteorología","La niebla se forma cuando:",["La temperatura se acerca al punto de rocío","El aire está muy seco","Sopla viento fuerte","La presión es muy alta"],0,"Cuando temperatura y punto de rocío son casi iguales, hay riesgo de niebla o nubes bajas."],
+["Meteorología","En un METAR, CAVOK significa:",["Visibilidad 10 km o más, sin nubes bajo 5000 pies y sin fenómenos significativos","Cielo cubierto","Viento calmo","Cierre de aeródromo"],0,"Ceiling And Visibility OK."],
+["Meteorología","El tipo de nube más peligroso, por turbulencia, rayos y granizo, es el:",["Cumulonimbus","Cirrus","Estratos","Altocúmulos"],0,"El Cb se evita siempre."],
+["Meteorología","Una inversión térmica es:",["Un aumento de temperatura con la altura","Una caída brusca de presión","Viento que cambia de dirección","Lluvia congelada"],0,"En vez de enfriarse, el aire se calienta con la altura, atrapa humedad y contaminantes y limita la visibilidad."],
+["Meteorología","La brisa marina durante el día sopla:",["Del mar hacia la tierra","De la tierra hacia el mar","Paralela a la costa siempre","No existe"],0,"La tierra se calienta más, el aire sube y el aire fresco del mar entra a ocupar su lugar."],
+["Meteorología","Las ráfagas y turbulencia mecánica son más probables:",["A sotavento de edificios, cerros y árboles","A barlovento en campo abierto","Sobre el mar calmo","Con cielo despejado y sin viento"],0,"Los obstáculos generan rotores y turbulencia en su lado protegido del viento."],
+["Meteorología","Con viento fuerte, un multirrotor pequeño:",["Puede no tener potencia para volver y gasta más batería","Gasta menos batería","Se vuelve más estable","Vuela mejor"],0,"El viento de frente en el regreso puede superar la capacidad del RPA."],
+["Meteorología","El QNH es el ajuste de altímetro que da:",["La altitud sobre el nivel del mar","La altura sobre el aeródromo","El nivel de vuelo","La temperatura"],0,"QNH: altitud sobre el nivel medio del mar. QFE: altura sobre el aeródromo."],
+["Meteorología","La lluvia en un RPA sin protección puede causar:",["Cortocircuitos y pérdida de control","Más sustentación","Menos peso","Mayor autonomía"],0,"La humedad afecta electrónica, motores y baterías."],
+// AERODINÁMICA
+["Aerodinámica","Las cuatro fuerzas que actúan en el vuelo son:",["Sustentación, peso, empuje y resistencia","Fuerza, masa, aceleración y gravedad","Viento, lluvia, presión y calor","Empuje, giro, balanceo y cabeceo"],0,"Lift, weight, thrust y drag."],
+["Aerodinámica","Un ala entra en pérdida cuando:",["Se supera el ángulo de ataque crítico","Pierde velocidad solo","Hay poca batería","Hay mucho viento de frente"],0,"La pérdida depende del ángulo de ataque, no solo de la velocidad."],
+["Aerodinámica","Al aumentar la velocidad, la sustentación:",["Aumenta con el cuadrado de la velocidad","Disminuye","Se mantiene","Aumenta linealmente"],0,"La sustentación crece con el cuadrado de la velocidad."],
+["Aerodinámica","En un multirrotor, para subir se:",["Aumentan las RPM de todos los motores","Disminuyen las RPM","Se frena un motor","Se inclinan solo las hélices"],0,"Más empuje total que el peso produce ascenso."],
+["Aerodinámica","En un cuadricóptero, el giro sobre su eje vertical (guiñada) se logra:",["Variando la velocidad de los pares de hélices que giran en sentidos opuestos","Frenando un solo motor","Inclinando la cámara","Cambiando la batería"],0,"Se desequilibra el par de reacción entre hélices horarias y antihorarias."],
+["Aerodinámica","Para desplazarse hacia adelante, un cuadricóptero:",["Inclina el equipo, aumentando RPM atrás y bajando adelante","Gira sobre su eje","Sube y baja","Apaga los motores"],0,"El empuje se inclina y genera componente horizontal."],
+["Aerodinámica","El estado de anillo de vórtice ocurre cuando:",["Desciendes muy rápido y casi vertical dentro de tu propia estela","Subes demasiado rápido","Vuelas con viento de cola fuerte","El GPS falla"],0,"El rotor pierde sustentación al caer dentro del aire que él mismo empujó hacia abajo. Se evita descendiendo con avance lateral."],
+["Aerodinámica","El efecto suelo hace que, cerca del suelo, el RPA:",["Gane sustentación y se sienta más flotante","Pierda empuje","Gire solo","Gaste más batería"],0,"El colchón de aire bajo las hélices aumenta la eficiencia cerca del piso."],
+["Aerodinámica","Agregar peso de carga al RPA:",["Reduce autonomía y maniobrabilidad","Aumenta autonomía","No tiene efecto","Mejora la estabilidad siempre"],0,"Más peso exige más empuje y por tanto más consumo."],
+["Aerodinámica","La sustentación es una fuerza:",["Perpendicular al flujo de aire relativo","Paralela al flujo","Siempre vertical hacia abajo","Igual al peso siempre"],0,"La resistencia es paralela al flujo; la sustentación es perpendicular."],
+["Aerodinámica","El centro de gravedad muy atrasado en un ala fija produce:",["Inestabilidad","Más estabilidad","Menos resistencia","Nada"],0,"Un CG atrasado reduce la estabilidad longitudinal, un CG adelantado la aumenta pero requiere más control."],
+// NAVEGACIÓN
+["Navegación","Para obtener una posición 3D confiable, el GNSS necesita como mínimo:",["4 satélites","2 satélites","1 satélite","10 satélites"],0,"Tres para posición horizontal y un cuarto para altura y corrección de reloj."],
+["Navegación","La brújula del RPA se calibra para:",["Corregir interferencias magnéticas del lugar","Aumentar potencia","Mejorar la cámara","Cargar la batería"],0,"Se calibra lejos de metales y estructuras con campos magnéticos."],
+["Navegación","La altura de retorno a casa (RTH) debe configurarse:",["Por encima del obstáculo más alto del trayecto","Al nivel del suelo","Siempre en 10 metros","Da lo mismo"],0,"Si no, el RPA puede chocar con edificios, árboles o torres al volver."],
+["Navegación","Si se pierde el enlace de control, lo habitual es que el RPA:",["Ejecute la acción de falla programada, como retorno a casa","Se apague en el aire","Aterrice siempre sobre la gente","Siga volando indefinidamente"],0,"Debes configurar y probar el failsafe antes de volar."],
+["Navegación","Un pie equivale aproximadamente a:",["0,3048 metros","0,5 metros","1 metro","0,1 metro"],0,"400 pies equivalen a unos 122 metros."],
+["Navegación","Una milla náutica equivale a:",["1852 metros","1000 metros","1609 metros","1500 metros"],0,"1 NM son 1852 metros, un minuto de arco de latitud."],
+["Navegación","La hora que usa la aviación a nivel mundial es:",["UTC","Hora local","Hora de verano","Hora del fabricante"],0,"UTC, antes llamada Zulu."],
+["Navegación","Un nudo es:",["Una milla náutica por hora","Un kilómetro por hora","Un metro por segundo","Una milla terrestre por hora"],0,"1 kt son 1,852 km/h."],
+["Navegación","La variación magnética es la diferencia entre:",["El norte verdadero y el norte magnético","El norte magnético y el de la brújula","La latitud y la longitud","La altitud y la altura"],0,"Se aplica para convertir rumbos verdaderos y magnéticos."],
+["Navegación","La latitud se mide:",["Desde el ecuador, hacia el norte o sur","Desde Greenwich","Con el altímetro","En horas"],0,"Latitud desde el ecuador (0 a 90 grados), longitud desde el meridiano de Greenwich."],
+["Navegación","El espacio aéreo controlado es aquel donde:",["Se presta servicio de control de tránsito aéreo","Está prohibido volar","Solo vuelan RPA","No hay reglas"],0,"Ejemplos: CTR y TMA. Ahí necesitas coordinación y autorización."],
+// OPERACIONES
+["Operaciones","La inspección prevuelo sirve para:",["Verificar que el equipo y el entorno estén seguros antes de volar","Registrar el vuelo","Calibrar la cámara únicamente","Ahorrar batería"],0,"Hélices, baterías, enlace, GPS, clima, entorno y autorizaciones."],
+["Operaciones","Una batería LiPo hinchada:",["No se debe usar y debe desecharse de forma segura","Se puede usar una vez más","Rinde más","Se carga más rápido"],0,"Riesgo de incendio. Se descarta como residuo peligroso."],
+["Operaciones","Para guardar una LiPo por varios días, conviene dejarla:",["Cerca del voltaje de almacenamiento, unos 3,8 voltios por celda","Cargada al 100%","Totalmente descargada","Al sol"],0,"Almacenada llena o vacía se degrada y es más peligrosa."],
+["Operaciones","El frío intenso en una batería LiPo:",["Reduce la capacidad disponible","La mejora","No tiene efecto","Aumenta el voltaje"],0,"En frío conviene entibiar la batería antes del vuelo."],
+["Operaciones","Cuando la batería llega a la advertencia de nivel bajo, debes:",["Regresar y aterrizar con margen de reserva","Seguir hasta el crítico","Subir para mejor señal","Apagar el control"],0,"Siempre vuela con reserva para regresar con viento de frente."],
+["Operaciones","Un observador visual ayuda a:",["Mantener la conciencia del espacio aéreo y avisar de riesgos","Cargar baterías","Reemplazar al piloto en todo","Calibrar la brújula"],0,"Amplía la vigilancia visual alrededor del RPA."],
+["Operaciones","Ante la aparición de una aeronave tripulada cerca de tu RPA, debes:",["Ceder el paso y descender o alejarte de inmediato","Subir para verla mejor","Mantener rumbo","Acelerar"],0,"El RPA siempre cede el paso."],
+["Operaciones","Las interferencias en 2,4 y 5,8 GHz se deben principalmente a:",["Redes wifi, torres y otros transmisores cercanos","Las nubes","La batería","El GPS"],0,"Puede degradar el enlace de control y video."],
+["Operaciones","Una checklist se usa para:",["Reducir errores y olvidos","Perder tiempo","Reemplazar la capacitación","Solo para vuelos comerciales"],0,"Las listas de verificación son una barrera de seguridad básica."],
+["Operaciones","Antes de despegar, el RPA debe tener el punto de origen registrado para:",["Que el retorno a casa funcione correctamente","Calibrar la cámara","Aumentar la señal","Cargar la batería"],0,"Se registra con GPS adquirido antes del vuelo."],
+["Operaciones","Si un motor falla en un cuadricóptero:",["Se pierde control y probablemente el RPA cae","Sigue volando normal","Mejora la estabilidad","Aterriza suave siempre"],0,"Un cuadricóptero no tolera fallas de motor; algunos con más rotores sí."],
+["Operaciones","Las hélices dañadas o con rajaduras:",["Se reemplazan antes de volar","Se pueden usar si no hay viento","Se pegan con cinta","Se usan solo de día"],0,"Una hélice dañada genera vibración y puede romperse en vuelo."],
+["Operaciones","La mejor zona para despegar y aterrizar es:",["Despejada, plana, alejada de personas y obstáculos","Debajo de árboles","Junto a una calle transitada","Sobre agua"],0,"Siempre prevé una zona de aterrizaje de emergencia."],
+// FACTORES HUMANOS
+["Factores humanos","La fatiga del piloto:",["Reduce la atención y aumenta los errores","Mejora la concentración","No afecta a pilotos remotos","Solo afecta de noche"],0,"Un piloto remoto cansado no debe volar."],
+["Factores humanos","Operar bajo efectos de alcohol, drogas o ciertos medicamentos:",["Está prohibido","Está permitido en cantidades pequeñas","Es válido si el RPA es pequeño","Solo está prohibido de noche"],0,"Se aplican las mismas reglas que a cualquier piloto."],
+["Factores humanos","La conciencia situacional es:",["Saber qué ocurre a tu alrededor y anticipar lo que puede pasar","Mirar solo la pantalla","Confiar en el piloto automático","Tener experiencia"],0,"Un piloto con alta conciencia situacional anticipa problemas."],
+["Factores humanos","El modelo del queso suizo explica que:",["Los accidentes ocurren cuando se alinean fallas en varias barreras","El error humano es siempre único","Los accidentes son al azar","El clima causa todo"],0,"Es el modelo de James Reason."],
+["Factores humanos","El estrés excesivo en vuelo tiende a:",["Estrechar la atención y empeorar las decisiones","Mejorar la reacción","No tener efectos","Aumentar la memoria"],0,"Se suele perder visión periférica y capacidad de análisis."],
+["Factores humanos","Una actitud peligrosa como 'a mí no me va a pasar' se llama:",["Invulnerabilidad","Resignación","Impulsividad","Macho"],0,"Se contrarresta con 'esto sí me puede pasar'."],
+["Factores humanos","La comunicación clara con el observador visual:",["Reduce el riesgo de malentendidos","Es innecesaria","Solo importa de noche","Distrae"],0,"Usa frases cortas y confirma ambos."],
+["Factores humanos","La mejor decisión ante la duda sobre la seguridad de un vuelo es:",["No volar o abortar","Volar de todos modos","Esperar que mejore sobre la marcha","Pedir a otro que vuele"],0,"La seguridad pesa más que la presión por cumplir."]
+];
+
+/* ---------- Estado ---------- */
+const $=id=>document.getElementById(id);
+const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+let bank=store.get('rpa_bank',null)||BANK;
+let mode='quiz', topics=new Set(), run=0, deck=[], idx=0, ok=0, bad=0, answered=0, total=0;
+let voice=null, curRec=null, wake=null;
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(!SR) $('nosr').hidden=false;
+
+/* ---------- Voz de salida ---------- */
+function pickVoice(){
+  const vs=speechSynthesis.getVoices();
+  voice=vs.find(v=>/es[-_]CL/i.test(v.lang))||vs.find(v=>/es[-_](US|MX|419|AR|CO)/i.test(v.lang))||vs.find(v=>/^es/i.test(v.lang))||null;
+}
+speechSynthesis.onvoiceschanged=pickVoice; pickVoice();
+function say(text,token){
+  return new Promise(res=>{
+    if(token!==run) return res();
+    const parts=text.match(/[^.!?¿]+[.!?]?/g)||[text];
+    let i=0;
+    const next=()=>{
+      if(token!==run||i>=parts.length) return res();
+      const t=parts[i++].trim(); if(!t) return next();
+      const u=new SpeechSynthesisUtterance(t);
+      u.lang=voice?voice.lang:'es-CL'; if(voice)u.voice=voice;
+      u.rate=parseFloat($('rate').value);
+      u.onend=next; u.onerror=next;
+      speechSynthesis.speak(u);
+    };
+    next();
+  });
+}
+const sleep=(ms,token)=>new Promise(r=>{const t0=Date.now();const iv=setInterval(()=>{if(token!==run||Date.now()-t0>=ms){clearInterval(iv);r()}},100)});
+function setStatus(kind,txt){$('dot').className='dot '+kind;$('stxt').textContent=txt}
+
+/* ---------- Reconocimiento ---------- */
+function listen(token,ms=8000){
+  return new Promise(res=>{
+    if(!SR||token!==run) return res(null);
+    const r=new SR(); r.lang='es-CL'; r.interimResults=false; r.maxAlternatives=4; r.continuous=false;
+    let done=false;
+    const fin=v=>{ if(done)return; done=true; clearTimeout(t); try{r.abort()}catch{}; curRec=null; res(v) };
+    r.onresult=e=>fin([...e.results[0]].map(a=>a.transcript));
+    r.onerror=()=>fin(null); r.onend=()=>fin(null);
+    const t=setTimeout(()=>fin(null),ms);
+    curRec=r;
+    try{r.start()}catch{fin(null)}
+  });
+}
+const norm=s=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+function parse(alts){
+  if(!alts) return null;
+  for(const raw of alts){
+    const s=norm(raw), w=s.split(' ');
+    if(/\b(repite|repetir|repiteme|otra vez|de nuevo)\b/.test(s)) return {cmd:'repeat'};
+    if(/\b(explica|explicar|explicacion|por que)\b/.test(s)) return {cmd:'explain'};
+    if(/\b(siguiente|pasa|pasar|salta|saltar|next)\b/.test(s)) return {cmd:'next'};
+    if(/\b(pausa|detente|terminar|termina|salir|basta|parar|para ya)\b/.test(s)) return {cmd:'stop'};
+    if(/\b(1|uno|una|primera|primero)\b/.test(s)) return {ans:0};
+    if(/\b(2|dos|segunda|segundo)\b/.test(s)) return {ans:1};
+    if(/\b(3|tres|tercera|tercero)\b/.test(s)) return {ans:2};
+    if(/\b(4|cuatro|cuarta|cuarto)\b/.test(s)) return {ans:3};
+    if(w.length<=3){
+      const L={a:0,ah:0,b:1,be:1,ve:1,c:2,ce:2,se:2,d:3,de:3};
+      for(const t of w) if(t in L) return {ans:L[t]};
+    }
+  }
+  return null;
+}
+
+/* ---------- Mazo ---------- */
+const shuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+function buildDeck(){
+  const pool=bank.filter(q=>!topics.size||topics.has(q[0]));
+  return shuffle(pool).map(q=>{
+    const correct=q[2][q[3]], opts=shuffle(q[2]);
+    return {t:q[0],q:q[1],opts,c:opts.indexOf(correct),e:q[4]||''};
+  });
+}
+function renderTopics(){
+  const all=[...new Set(bank.map(q=>q[0]))], box=$('topics'); box.innerHTML='';
+  const mk=(label,val)=>{const b=document.createElement('button');b.textContent=label;
+    b.setAttribute('aria-pressed',val==null?String(topics.size===0):String(topics.has(val)));
+    b.onclick=()=>{ if(val==null) topics.clear(); else topics.has(val)?topics.delete(val):topics.add(val); renderTopics(); };
+    box.appendChild(b)};
+  mk('Todos',null); all.forEach(t=>mk(t,t));
+}
+function renderQ(card,reveal){
+  $('q').textContent=card.q;
+  const box=$('opts'); box.innerHTML='';
+  card.opts.forEach((o,i)=>{
+    const b=document.createElement('button'); b.innerHTML='<b>'+(i+1)+'</b><span></span>'; b.lastChild.textContent=o;
+    if(reveal&&i===card.c) b.classList.add('ok');
+    b.onclick=()=>{ if(window._tap) window._tap(i) };
+    box.appendChild(b);
+  });
+  $('expl').textContent=''; $('heard').textContent='';
+}
+function stats(){
+  $('sOk').textContent=ok; $('sBad').textContent=bad; $('sN').textContent=Math.min(answered+1,total||0); $('sT').textContent=total;
+  $('sPct').textContent=answered?Math.round(100*ok/answered)+'%':'–';
+}
+
+/* ---------- Bucle principal ---------- */
+async function session(token){
+  deck=buildDeck(); idx=0; ok=0; bad=0; answered=0; total=deck.length; stats();
+  if(!deck.length){ $('q').textContent='No hay preguntas para esos temas.'; return stop(); }
+  await say(mode==='quiz'?'Empezamos. Responde con el número de la opción, uno, dos, tres o cuatro. Puedes decir repetir, explicar, siguiente o parar.':'Modo audio. Escucharás la pregunta, una pausa para pensar, y luego la respuesta.',token);
+  while(token===run && idx<deck.length){
+    const card=deck[idx]; stats(); renderQ(card,false);
+    const readQ=()=>say('Pregunta '+(answered+1)+'. '+card.q+' '+card.opts.map((o,i)=>(i+1)+'. '+o+'.').join(' '),token);
+    setStatus('speak','Leyendo pregunta…'); await readQ();
+    if(token!==run) break;
+    let result=null, tries=0;
+    if(mode==='audio'){
+      setStatus('', 'Piensa tu respuesta…'); await sleep(4500,token);
+      result={ans:null};
+    } else {
+      while(token===run && !result){
+        setStatus('listen','Escuchando… di 1, 2, 3 o 4');
+        const alts=await listen(token);
+        if(token!==run) break;
+        $('heard').textContent=alts?('Escuché: '+alts[0]):'';
+        const p=parse(alts);
+        if(!p){ tries++;
+          if(tries>=3){ setStatus('speak','Sin respuesta'); await say('No te escuché. Te digo la respuesta.',token); result={ans:-1}; break; }
+          setStatus('speak','No te escuché'); await say(tries===1?'No te escuché. Di uno, dos, tres o cuatro.':'Repito la pregunta.',token);
+          if(tries===2){ await readQ(); }
+          continue;
+        }
+        if(p.cmd==='repeat'){ setStatus('speak','Repitiendo…'); await readQ(); continue; }
+        if(p.cmd==='explain'){ setStatus('speak','Explicando…'); await say(card.e||'No tengo explicación para esta pregunta.',token); continue; }
+        if(p.cmd==='next'){ result={ans:-2}; break; }
+        if(p.cmd==='stop'){ await say('Sesión detenida.',token); return stop(); }
+        result=p;
+      }
+    }
+    if(token!==run) break;
+    // evaluar
+    const a=result.ans;
+    renderQ(card,true);
+    const right='La correcta es la '+(card.c+1)+'. '+card.opts[card.c]+'.';
+    if(a===-2){ setStatus('speak','Saltada'); await say(right,token); deck.splice(Math.min(deck.length,idx+5),0,card); total=deck.length; idx++; continue; }
+    answered++;
+    if(mode==='audio'){
+      setStatus('speak','Respuesta'); await say(right+' '+card.e,token); ok++; // en audio no se califica
+      $('expl').textContent=card.e; idx++; await sleep(900,token); continue;
+    }
+    if(a===card.c){
+      ok++; setStatus('speak','Correcto');
+      $('expl').textContent=card.e;
+      await say('Correcto.'+($('expOk').checked?' '+card.e:''),token);
+    } else {
+      bad++; setStatus('speak','Incorrecto');
+      [...$('opts').children].forEach((b,i)=>{ if(i===a)b.classList.add('bad') });
+      $('expl').textContent=card.e;
+      await say((a===-1?'':'Incorrecto. ')+right+' '+card.e,token);
+      deck.splice(Math.min(deck.length,idx+6),0,card); total=deck.length;
+    }
+    stats(); idx++; await sleep(500,token);
+  }
+  if(token===run){
+    const pct=answered?Math.round(100*ok/answered):0;
+    const msg=mode==='quiz'?('Sesión terminada. '+ok+' aciertos y '+bad+' fallos. Tu nota es '+pct+' por ciento. '+(pct>=75?'Estás sobre el 75 que necesitas.':'Todavía bajo el 75. Sigue repasando.')):'Fin del repaso.';
+    $('q').textContent=msg; await say(msg,token); stop();
+  }
+}
+function stop(){
+  run++; speechSynthesis.cancel(); try{curRec&&curRec.abort()}catch{}
+  setStatus('','Detenido'); $('go').hidden=false; $('halt').hidden=true;
+  if(wake){try{wake.release()}catch{} wake=null}
+}
+async function start(){
+  stop(); const token=++run;
+  $('go').hidden=true; $('halt').hidden=false;
+  try{ if(navigator.wakeLock) wake=await navigator.wakeLock.request('screen'); }catch{}
+  // un toque en una opción también responde (cuando estás detenido en un semáforo)
+  window._tap=null;
+  if(mode==='quiz' && SR){ try{ const s=await navigator.mediaDevices.getUserMedia({audio:true}); s.getTracks().forEach(t=>t.stop()); }catch{ $('q').textContent='Permite el micrófono en el navegador para usar el quiz hablado.'; return stop(); } }
+  session(token);
+}
+
+/* ---------- Eventos ---------- */
+$('go').onclick=start;
+$('halt').onclick=stop;
+$('modes').onclick=e=>{const b=e.target.closest('button'); if(!b)return; mode=b.dataset.m;
+  [...$('modes').children].forEach(x=>x.setAttribute('aria-pressed',String(x===b))); store.set('rpa_mode',mode)};
+$('rate').oninput=()=>store.set('rpa_rate',$('rate').value);
+$('expOk').onchange=()=>store.set('rpa_expok',$('expOk').checked);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && run && !wake && navigator.wakeLock){ navigator.wakeLock.request('screen').then(w=>wake=w).catch(()=>{}) } });
+
+/* Importar banco propio */
+function parseBank(text){
+  const out=[];
+  text.split(/\n\s*\n/).forEach(block=>{
+    const lines=block.split('\n').map(l=>l.trim()).filter(Boolean); if(lines.length<3)return;
+    let q=[],opts=[],c=-1,e='';
+    lines.forEach(l=>{
+      const m=l.match(/^(\*?)\s*([a-dA-D1-4])[\).\-:]\s*(.+)$/);
+      if(l.startsWith('>')) e+=(e?' ':'')+l.slice(1).trim();
+      else if(m){ if(m[1]==='*')c=opts.length; opts.push(m[3].trim()); }
+      else if(!opts.length) q.push(l);
+    });
+    if(q.length&&opts.length>=2&&c>=0) out.push(['Mi banco',q.join(' '),opts,c,e]);
+  });
+  return out;
+}
+$('impOk').onclick=()=>{
+  const b=parseBank($('imp').value);
+  if(!b.length){ $('impMsg').textContent='No pude leer ninguna pregunta. Revisa el formato: una opción con * es la correcta.'; return; }
+  bank=b; store.set('rpa_bank',b); topics.clear(); renderTopics(); $('impMsg').textContent=b.length+' preguntas cargadas.';
+};
+$('impReset').onclick=()=>{ bank=BANK; store.set('rpa_bank',null); topics.clear(); renderTopics(); $('impMsg').textContent='Banco incluido restaurado ('+BANK.length+' preguntas).'; };
+
+/* Toque en opciones durante quiz: respuesta manual */
+$('opts').addEventListener('click',()=>{});
+
+/* Init */
+mode=store.get('rpa_mode','quiz'); [...$('modes').children].forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.m===mode)));
+$('rate').value=store.get('rpa_rate',1.05); $('expOk').checked=store.get('rpa_expok',false);
+renderTopics();
+</script>
+</body>
+</html>
